@@ -2,7 +2,7 @@ const reply = (data, status, headers) => new Response(JSON.stringify(data), {sta
 function blocked(host) {
   const h=host.toLowerCase();
   if(h==="localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
-  if(/^([0-9]{1,3}\\.){3}[0-9]{1,3}$/.test(h)) {
+  if(/^([0-9]{1,3}\.){3}[0-9]{1,3}$/.test(h)) {
     const p=h.split(".").map(Number);
     if(p.some(n=>n>255)) return true;
     return p[0]===10 || p[0]===127 || p[0]===0 || p[0]>=224 || (p[0]===169&&p[1]===254) || (p[0]===172&&p[1]>=16&&p[1]<=31) || (p[0]===192&&p[1]===168);
@@ -15,15 +15,15 @@ function parseUrl(value) {
   if(u.username||u.password||blocked(u.hostname)) throw new Error("This host is not allowed.");
   return u;
 }
-function extract(html, regex) { const m=regex.exec(html); return m ? m[1].replace(/<[^>]*>/g," ").replace(/&amp;/gi,"&").replace(/&nbsp;/gi," ").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/\\s+/g," ").trim() : ""; }
+function extract(html, regex) { const m=regex.exec(html); return m ? m[1].replace(/<[^>]*>/g," ").replace(/&amp;/gi,"&").replace(/&nbsp;/gi," ").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/\s+/g," ").trim() : ""; }
 function analyze(html,url,status,headers) {
-  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
-  const description=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
-  const canonical=/<link\\b(?=[^>]*rel=["']canonical["'])(?=[^>]*href=["'][^"']+["'])[^>]*>/i.test(html);
-  const h1=(html.match(/<h1\\b/gi)||[]).length, headings=(html.match(/<h[1-6]\\b/gi)||[]).length;
-  const imgs=html.match(/<img\\b[^>]*>/gi)||[], missing=imgs.filter(x=>!/\\balt\\s*=/.test(x)).length;
-  const viewport=/<meta\\b(?=[^>]*name=["']viewport["'])/i.test(html);
-  const robots=extract(html,/<meta\\b(?=[^>]*name=["']robots["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i);
+  const title=extract(html,/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const description=extract(html,/<meta\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const canonical=/<link\b(?=[^>]*rel=["']canonical["'])(?=[^>]*href=["'][^"']+["'])[^>]*>/i.test(html);
+  const h1=(html.match(/<h1\b/gi)||[]).length, headings=(html.match(/<h[1-6]\b/gi)||[]).length;
+  const imgs=html.match(/<img\b[^>]*>/gi)||[], missing=imgs.filter(x=>!/\balt\s*=/.test(x)).length;
+  const viewport=/<meta\b(?=[^>]*name=["']viewport["'])/i.test(html);
+  const robots=extract(html,/<meta\b(?=[^>]*name=["']robots["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i);
   const findings=[];
   function add(category,severity,titleText,details,recommendation){findings.push({category:category,severity:severity,title:titleText,details:details,recommendation:recommendation});}
   add("Technical",status>=200&&status<400?"passed":"critical","HTTP response","The page returned HTTP "+status+".","Keep the page reachable and return a successful status code.");
