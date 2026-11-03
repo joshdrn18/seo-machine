@@ -1,0 +1,11 @@
+name = "seo-machine-api"
+main = "worker/index.js"
+compatibility_date = "2026-11-03"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "seo-machine-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+APP_ORIGIN = "https://YOUR-PROJECT.pages.dev"
