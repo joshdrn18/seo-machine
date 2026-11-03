@@ -145,7 +145,9 @@ export class AuthDirectory extends DurableObject {
 
 export default {
   async fetch(request,env) {
-    const origin=request.headers.get("Origin")||"", allowed=env.APP_ORIGIN&&origin===env.APP_ORIGIN?origin:"";
+    const origin=request.headers.get("Origin")||"";
+    const previewOrigin=/^https:\/\/[a-z0-9-]+\.seo-machine-5ay\.pages\.dev$/i.test(origin);
+    const allowed=(env.APP_ORIGIN&&origin===env.APP_ORIGIN)||previewOrigin?origin:"";
     const headers={"access-control-allow-methods":"GET, POST, OPTIONS","access-control-allow-headers":"content-type,authorization,x-bootstrap-token","vary":"Origin"};
     if(allowed) headers["access-control-allow-origin"]=allowed;
     if(request.method==="OPTIONS") return new Response(null,{status:204,headers:headers});
