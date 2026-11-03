@@ -42,7 +42,7 @@ function analyze(html,url,status,headers) {
   const score=Math.max(0,Math.round(findings.reduce((n,f)=>n+(f.severity==="passed"?10:f.severity==="warning"?5:0),0)/findings.length*10));
   return {url:url.href,hostname:url.hostname,status:status,title:title,description:description,score:score,findings:findings,summary:{passed:passed,warnings:warnings,critical:critical,total:findings.length},checkedAt:new Date().toISOString()};
 }
-async function doAudit(request,env) {
+async function doAudit(request,env,user) {
   const body=await request.json().catch(()=>null);
   if(!body||typeof body.url!=="string"||body.url.length>2048) return reply({error:"Provide a website URL."},400);
   let target; try { target=parseUrl(body.url); } catch(e) { return reply({error:e.message},400); }
@@ -62,6 +62,7 @@ async function doAudit(request,env) {
   const reader=response.body&&response.body.getReader(); let html="",size=0;
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
   const audit=analyze(html,target,response.status,response.headers);
+  audit.ownerId=user.id; audit.ownerEmail=user.email;
   try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+crypto.randomUUID(),JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
   return reply({audit:audit});
 }
@@ -223,7 +224,17 @@ export default {
       return reply({events:await auth.listActivity(150)},200,headers);
     }
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
-    if(path==="/api/audit"&&request.method==="POST") { const result=await doAudit(request,env); const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);}); return new Response(result.body,{status:result.status,headers:h}); }
+    if(path==="/api/audit"&&request.method==="POST") {
+      const user=await getUser();
+      if(!user) return reply({error:"Authentication required."},401,headers);
+      const result=await doAudit(request,env,user);
+      if(result.status===200) {
+        const payload=JSON.parse(result.body);
+        await event(user.id,"audit.completed","Audited "+payload.audit.hostname+" · score "+payload.audit.score);
+      }
+      const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);});
+      return new Response(result.body,{status:result.status,headers:h});
+    }
     return reply({error:"Not found"},404,headers);
   }
 };
