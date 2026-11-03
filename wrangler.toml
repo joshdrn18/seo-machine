@@ -8,3 +8,11 @@ id = "c8790274ffbf4f5ca00c0aa04487e94b"
 
 [vars]
 APP_ORIGIN = "https://seo-machine-5ay.pages.dev"
+
+[[durable_objects.bindings]]
+name = "AUTH"
+class_name = "AuthDirectory"
+
+[[migrations]]
+tag = "v1-auth-directory"
+new_sqlite_classes = ["AuthDirectory"]
