@@ -174,7 +174,7 @@ export default {
     if(path==="/api/auth/bootstrap"&&request.method==="POST") {
       if(!env.BOOTSTRAP_TOKEN || request.headers.get("x-bootstrap-token")!==env.BOOTSTRAP_TOKEN) return reply({error:"Invalid setup token."},403,headers);
       const body=await readBody();
-      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
+      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
       const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
       const now=new Date().toISOString();
       const user={id:crypto.randomUUID(),email:body.email.trim().toLowerCase(),name:String(body.name||"Super Admin").trim().slice(0,80)||"Super Admin",passwordSalt:salt,passwordHash:await passwordHash(body.password,salt),createdAt:now};
@@ -212,7 +212,7 @@ export default {
     if(path==="/api/admin/users"&&request.method==="POST") {
       const actor=await getUser(); if(!actor) return reply({error:"Authentication required."},401,headers); if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       const body=await readBody();
-      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
+      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
       const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join(""),now=new Date().toISOString();
       const member={id:crypto.randomUUID(),email:body.email.trim().toLowerCase(),name:String(body.name||"Member").trim().slice(0,80)||"Member",passwordSalt:salt,passwordHash:await passwordHash(body.password,salt),createdAt:now};
       try { await auth.createMember(member); await event(actor.id,"member.created","Created member "+member.email); }
