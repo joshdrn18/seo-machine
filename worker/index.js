@@ -72,7 +72,6 @@ export default {
     if(request.method==="OPTIONS") return new Response(null,{status:204,headers:headers});
     const path=new URL(request.url).pathname;
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
-    if(path==="/api/audits"&&request.method==="GET") { if(!env.AUDITS) return reply({error:"Audit storage is not configured."},503,headers); const listed=await env.AUDITS.list({prefix:"audit:",limit:50}); const audits=await Promise.all(listed.keys.map(async k=>JSON.parse(await env.AUDITS.get(k.name)||"null"))); return reply({audits:audits.filter(Boolean)},200,headers); }
     if(path==="/api/audit"&&request.method==="POST") { const result=await doAudit(request,env); const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);}); return new Response(result.body,{status:result.status,headers:h}); }
     return reply({error:"Not found"},404,headers);
   }
