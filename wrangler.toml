@@ -2,10 +2,9 @@ name = "seo-machine-api"
 main = "worker/index.js"
 compatibility_date = "2026-11-03"
 
-[[d1_databases]]
-binding = "DB"
-database_name = "seo-machine-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+[[kv_namespaces]]
+binding = "AUDITS"
+id = "c8790274ffbf4f5ca00c0aa04487e94b"
 
 [vars]
-APP_ORIGIN = "https://YOUR-PROJECT.pages.dev"
+APP_ORIGIN = "https://seo-machine-5ay.pages.dev"
