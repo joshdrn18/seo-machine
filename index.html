@@ -30,7 +30,7 @@
 <script>
 const $=s=>document.querySelector(s),all=s=>Array.from(document.querySelectorAll(s));
 const KEY="seo-machine-audits-v1",PREF="seo-machine-prefs-v1";let audits=JSON.parse(localStorage.getItem(KEY)||"[]"),prefs=JSON.parse(localStorage.getItem(PREF)||"{}"),latest=audits[0]||null;
-let apiBase=(prefs.apiBase||"").replace(/\/$/,"");
+let apiBase=(prefs.apiBase||"https://seo-machine-api.joshdrn18.workers.dev").replace(/\/$/,"");
 function notify(s){const t=$("#toast");t.textContent=s;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2600)}
 function date(s){return new Date(s).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}
 function go(v){all(".view").forEach(x=>x.classList.toggle("active",x.id==="view-"+v));all(".nav button").forEach(x=>x.classList.toggle("active",x.dataset.view===v));$("#crumb").textContent=v[0].toUpperCase()+v.slice(1);$("#sidebar").classList.remove("open")}
