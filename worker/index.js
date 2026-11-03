@@ -146,9 +146,27 @@ export class AuthDirectory extends DurableObject {
 export default {
   async fetch(request,env) {
     const origin=request.headers.get("Origin")||"";
-    const previewOrigin=/^https:\/\/[a-z0-9-]+\.seo-machine-5ay\.pages\.dev$/i.test(origin);
-    const allowed=(env.APP_ORIGIN&&origin===env.APP_ORIGIN)||previewOrigin?origin:"";
-    const headers={"access-control-allow-methods":"GET, POST, OPTIONS","access-control-allow-headers":"content-type,authorization,x-bootstrap-token","vary":"Origin"};
+    let allowed="";
+    try {
+      const u=new URL(origin);
+      const host=u.hostname.toLowerCase();
+      const trusted=u.protocol==="https:" && (
+        host==="seo-machine.pages.dev" ||
+        host==="seo-machine-5ay.pages.dev" ||
+        host==="seo-machine-443.pages.dev" ||
+        host.endsWith(".seo-machine.pages.dev") ||
+        host.endsWith(".seo-machine-5ay.pages.dev") ||
+        host.endsWith(".seo-machine-443.pages.dev") ||
+        (env.APP_ORIGIN && origin===env.APP_ORIGIN)
+      );
+      if(trusted) allowed=origin;
+    } catch(e) {}
+    const headers={
+      "access-control-allow-methods":"GET, POST, OPTIONS",
+      "access-control-allow-headers":"content-type,authorization,x-bootstrap-token",
+      "access-control-max-age":"86400",
+      "vary":"Origin"
+    };
     if(allowed) headers["access-control-allow-origin"]=allowed;
     if(request.method==="OPTIONS") return new Response(null,{status:204,headers:headers});
     const path=new URL(request.url).pathname;
