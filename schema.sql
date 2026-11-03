@@ -1,0 +1,11 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE COLLATE NOCASE,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('super_admin','admin','user')),status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended')),created_at TEXT NOT NULL DEFAULT (datetime('now')),last_login_at TEXT);
+CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,expires_at TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS websites (id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,url TEXT NOT NULL,hostname TEXT NOT NULL,label TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')),UNIQUE(user_id,hostname));
+CREATE TABLE IF NOT EXISTS audits (id TEXT PRIMARY KEY,website_id TEXT REFERENCES websites(id) ON DELETE SET NULL,user_id TEXT REFERENCES users(id) ON DELETE SET NULL,url TEXT NOT NULL,score INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'completed',summary_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX IF NOT EXISTS idx_audits_user_date ON audits(user_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS audit_findings (id TEXT PRIMARY KEY,audit_id TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,category TEXT NOT NULL,severity TEXT NOT NULL CHECK(severity IN ('critical','warning','passed','info')),title TEXT NOT NULL,details TEXT NOT NULL,recommendation TEXT,created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX IF NOT EXISTS idx_findings_audit ON audit_findings(audit_id);
+CREATE TABLE IF NOT EXISTS admin_activity (id TEXT PRIMARY KEY,actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,action TEXT NOT NULL,target TEXT,metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE INDEX IF NOT EXISTS idx_admin_activity_date ON admin_activity(created_at DESC);
