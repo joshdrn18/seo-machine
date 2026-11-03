@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 const reply = (data, status, headers) => new Response(JSON.stringify(data), {status:status || 200,headers:Object.assign({"content-type":"application/json; charset=utf-8","cache-control":"no-store"},headers || {})});
 function blocked(host) {
   const h=host.toLowerCase();
@@ -64,13 +65,163 @@ async function doAudit(request,env) {
   try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+crypto.randomUUID(),JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
   return reply({audit:audit});
 }
+
+export class AuthDirectory extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS accounts (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('super_admin','member')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended')),
+          password_hash TEXT NOT NULL,
+          password_salt TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+          token_hash TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          expires_at INTEGER NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+        CREATE TABLE IF NOT EXISTS activity (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT,
+          action TEXT NOT NULL,
+          detail TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_activity_created ON activity(created_at DESC);
+      `);
+    });
+  }
+  countAccounts() {
+    return this.ctx.storage.sql.exec("SELECT COUNT(*) AS total FROM accounts").one().total;
+  }
+  findByEmail(email) {
+    return this.ctx.storage.sql.exec("SELECT id,email,name,role,status,password_hash,password_salt,created_at FROM accounts WHERE email = ? COLLATE NOCASE", email).toArray()[0] || null;
+  }
+  createFirstAdmin(user) {
+    if (this.countAccounts() !== 0) return { created: false };
+    this.ctx.storage.sql.exec("INSERT INTO accounts (id,email,name,role,status,password_hash,password_salt,created_at,updated_at) VALUES (?,?,?,'super_admin','active',?,?,?,?)", user.id,user.email,user.name,user.passwordHash,user.passwordSalt,user.createdAt,user.createdAt);
+    this.addActivity(user.id,"account.bootstrap","Initial Super Admin account created");
+    return { created: true };
+  }
+  createMember(user) {
+    this.ctx.storage.sql.exec("INSERT INTO accounts (id,email,name,role,status,password_hash,password_salt,created_at,updated_at) VALUES (?,?,?,'member','active',?,?,?,?)", user.id,user.email,user.name,user.passwordHash,user.passwordSalt,user.createdAt,user.createdAt);
+    this.addActivity(user.id,"account.created","Member account created");
+    return { created: true };
+  }
+  createSession(session) {
+    this.ctx.storage.sql.exec("INSERT INTO sessions (token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)",session.tokenHash,session.userId,session.expiresAt,session.createdAt);
+  }
+  getSession(tokenHash) {
+    const row = this.ctx.storage.sql.exec("SELECT s.expires_at,a.id,a.email,a.name,a.role,a.status FROM sessions s JOIN accounts a ON a.id=s.user_id WHERE s.token_hash=?",tokenHash).toArray()[0] || null;
+    if (!row || row.expires_at < Date.now() || row.status !== "active") {
+      if (row) this.ctx.storage.sql.exec("DELETE FROM sessions WHERE token_hash=?",tokenHash);
+      return null;
+    }
+    return {id:row.id,email:row.email,name:row.name,role:row.role,status:row.status,expiresAt:row.expires_at};
+  }
+  revokeSession(tokenHash) {
+    this.ctx.storage.sql.exec("DELETE FROM sessions WHERE token_hash=?",tokenHash);
+  }
+  addActivity(userId,action,detail) {
+    this.ctx.storage.sql.exec("INSERT INTO activity (user_id,action,detail,created_at) VALUES (?,?,?,?)",userId || null,action,detail || "",new Date().toISOString());
+  }
+  listUsers() {
+    return this.ctx.storage.sql.exec("SELECT id,email,name,role,status,created_at FROM accounts ORDER BY created_at DESC").toArray();
+  }
+  listActivity(limit=100) {
+    return this.ctx.storage.sql.exec("SELECT x.id,x.user_id,x.action,x.detail,x.created_at,a.email,a.name,a.role FROM activity x LEFT JOIN accounts a ON a.id=x.user_id ORDER BY x.id DESC LIMIT ?",Math.min(Math.max(Number(limit)||100,1),200)).toArray();
+  }
+}
+
 export default {
   async fetch(request,env) {
     const origin=request.headers.get("Origin")||"", allowed=env.APP_ORIGIN&&origin===env.APP_ORIGIN?origin:"";
-    const headers={"access-control-allow-methods":"GET, POST, OPTIONS","access-control-allow-headers":"content-type","vary":"Origin"};
+    const headers={"access-control-allow-methods":"GET, POST, OPTIONS","access-control-allow-headers":"content-type,authorization,x-bootstrap-token","vary":"Origin"};
     if(allowed) headers["access-control-allow-origin"]=allowed;
     if(request.method==="OPTIONS") return new Response(null,{status:204,headers:headers});
     const path=new URL(request.url).pathname;
+
+    const auth = env.AUTH.getByName("account-directory");
+    const readBody = async () => request.json().catch(()=>null);
+    const hashText = async value => {
+      const bytes = new TextEncoder().encode(value);
+      const digest = await crypto.subtle.digest("SHA-256",bytes);
+      return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+    };
+    const passwordHash = async (password,salt) => {
+      const key = await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]);
+      const bits = await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt:new TextEncoder().encode(salt),iterations:120000},key,256);
+      return Array.from(new Uint8Array(bits),b=>b.toString(16).padStart(2,"0")).join("");
+    };
+    const getUser = async () => {
+      const authHeader=request.headers.get("Authorization")||"";
+      const token=authHeader.startsWith("Bearer ")?authHeader.slice(7):"";
+      if(!token) return null;
+      return auth.getSession(await hashText(token));
+    };
+    const event = async (userId,action,detail) => auth.addActivity(userId,action,detail);
+    if(path==="/api/auth/status"&&request.method==="GET") return reply({ok:true,setupRequired:(await auth.countAccounts())===0},200,headers);
+    if(path==="/api/auth/bootstrap"&&request.method==="POST") {
+      if(!env.BOOTSTRAP_TOKEN || request.headers.get("x-bootstrap-token")!==env.BOOTSTRAP_TOKEN) return reply({error:"Invalid setup token."},403,headers);
+      const body=await readBody();
+      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
+      const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
+      const now=new Date().toISOString();
+      const user={id:crypto.randomUUID(),email:body.email.trim().toLowerCase(),name:String(body.name||"Super Admin").trim().slice(0,80)||"Super Admin",passwordSalt:salt,passwordHash:await passwordHash(body.password,salt),createdAt:now};
+      try { const result=await auth.createFirstAdmin(user); if(!result.created) return reply({error:"Initial admin setup has already been completed."},409,headers); }
+      catch(e) { return reply({error:"Could not create the initial account. The email may already exist."},409,headers); }
+      return reply({ok:true,message:"Super Admin created. Remove the bootstrap token from Worker secrets now."},201,headers);
+    }
+    if(path==="/api/auth/login"&&request.method==="POST") {
+      const body=await readBody();
+      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length>128) return reply({error:"Enter your email and password."},400,headers);
+      const account=await auth.findByEmail(body.email.trim().toLowerCase());
+      if(!account || account.status!=="active") return reply({error:"Email or password is incorrect."},401,headers);
+      const computed=await passwordHash(body.password,account.password_salt);
+      if(computed!==account.password_hash) return reply({error:"Email or password is incorrect."},401,headers);
+      const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,"0")).join("");
+      const now=new Date().toISOString(),expiresAt=Date.now()+7*24*60*60*1000;
+      await auth.createSession({tokenHash:await hashText(token),userId:account.id,expiresAt,createdAt:now});
+      await event(account.id,"auth.login","Successful sign-in");
+      return reply({ok:true,token,expiresAt,user:{id:account.id,email:account.email,name:account.name,role:account.role}},200,headers);
+    }
+    if(path==="/api/auth/me"&&request.method==="GET") {
+      const user=await getUser();
+      if(!user) return reply({error:"Authentication required."},401,headers);
+      return reply({ok:true,user},200,headers);
+    }
+    if(path==="/api/auth/logout"&&request.method==="POST") {
+      const authHeader=request.headers.get("Authorization")||"",token=authHeader.startsWith("Bearer ")?authHeader.slice(7):"";
+      if(token) { const user=await getUser(); await auth.revokeSession(await hashText(token)); if(user) await event(user.id,"auth.logout","Signed out"); }
+      return reply({ok:true},200,headers);
+    }
+    if(path==="/api/admin/users"&&request.method==="GET") {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      return reply({users:await auth.listUsers()},200,headers);
+    }
+    if(path==="/api/admin/users"&&request.method==="POST") {
+      const actor=await getUser(); if(!actor) return reply({error:"Authentication required."},401,headers); if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      const body=await readBody();
+      if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
+      const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join(""),now=new Date().toISOString();
+      const member={id:crypto.randomUUID(),email:body.email.trim().toLowerCase(),name:String(body.name||"Member").trim().slice(0,80)||"Member",passwordSalt:salt,passwordHash:await passwordHash(body.password,salt),createdAt:now};
+      try { await auth.createMember(member); await event(actor.id,"member.created","Created member "+member.email); }
+      catch(e) { return reply({error:"Could not create member. The email may already be registered."},409,headers); }
+      return reply({ok:true,user:{id:member.id,email:member.email,name:member.name,role:"member",status:"active",created_at:now}},201,headers);
+    }
+    if(path==="/api/admin/activity"&&request.method==="GET") {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      return reply({events:await auth.listActivity(150)},200,headers);
+    }
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
     if(path==="/api/audit"&&request.method==="POST") { const result=await doAudit(request,env); const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);}); return new Response(result.body,{status:result.status,headers:h}); }
     return reply({error:"Not found"},404,headers);
