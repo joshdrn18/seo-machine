@@ -60,7 +60,9 @@ async function doAudit(request,env) {
   if(!(response.headers.get("content-type")||"").includes("text/html")) return reply({error:"The URL did not return an HTML page."},422);
   const reader=response.body&&response.body.getReader(); let html="",size=0;
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
-  const audit=analyze(html,target,response.status,response.headers);\n  try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+crypto.randomUUID(),JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }\n  return reply({audit:audit});
+  const audit=analyze(html,target,response.status,response.headers);
+  try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+crypto.randomUUID(),JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
+  return reply({audit:audit});
 }
 export default {
   async fetch(request,env) {
@@ -70,7 +72,8 @@ export default {
     if(request.method==="OPTIONS") return new Response(null,{status:204,headers:headers});
     const path=new URL(request.url).pathname;
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
-    if(path==="/api/audits"&&request.method==="GET") { if(!env.AUDITS) return reply({error:"Audit storage is not configured."},503,headers); const listed=await env.AUDITS.list({prefix:"audit:",limit:50}); const audits=await Promise.all(listed.keys.map(async k=>JSON.parse(await env.AUDITS.get(k.name)||"null"))); return reply({audits:audits.filter(Boolean)},200,headers); }\n    if(path==="/api/audit"&&request.method==="POST") { const result=await doAudit(request,env); const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);}); return new Response(result.body,{status:result.status,headers:h}); }
+    if(path==="/api/audits"&&request.method==="GET") { if(!env.AUDITS) return reply({error:"Audit storage is not configured."},503,headers); const listed=await env.AUDITS.list({prefix:"audit:",limit:50}); const audits=await Promise.all(listed.keys.map(async k=>JSON.parse(await env.AUDITS.get(k.name)||"null"))); return reply({audits:audits.filter(Boolean)},200,headers); }
+    if(path==="/api/audit"&&request.method==="POST") { const result=await doAudit(request,env); const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);}); return new Response(result.body,{status:result.status,headers:h}); }
     return reply({error:"Not found"},404,headers);
   }
 };
