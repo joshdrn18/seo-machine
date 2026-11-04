@@ -234,7 +234,7 @@ export default {
       if(!user) return reply({error:"Authentication required."},401,headers);
       const result=await doAudit(request,env,user);
       if(result.status===200) {
-        const payload=JSON.parse(result.body);
+        const payload=await result.clone().json();
         await event(user.id,"audit.completed","Audited "+payload.audit.hostname+" · score "+payload.audit.score);
       }
       const h=new Headers(result.headers); Object.keys(headers).forEach(k=>{if(headers[k])h.set(k,headers[k]);});
