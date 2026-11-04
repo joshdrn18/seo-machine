@@ -63,7 +63,8 @@ async function doAudit(request,env,user) {
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
   const audit=analyze(html,target,response.status,response.headers);
   audit.ownerId=user.id; audit.ownerEmail=user.email;
-  try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+crypto.randomUUID(),JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
+  audit.id=crypto.randomUUID();
+  try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+audit.id,JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
   return reply({audit:audit});
 }
 
@@ -229,6 +230,25 @@ export default {
       return reply({events:await auth.listActivity(150)},200,headers);
     }
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
+    if(path==="/api/audits"&&request.method==="GET") {
+      const user=await getUser();
+      if(!user) return reply({error:"Authentication required."},401,headers);
+      const records=[]; let cursor;
+      for(let page=0;page<5;page++) {
+        const listed=await env.AUDITS.list({prefix:"audit:",limit:1000,...(cursor?{cursor}:{})});
+        const keys=listed.keys||[];
+        for(let i=0;i<keys.length;i+=40) {
+          const batch=await Promise.all(keys.slice(i,i+40).map(async item=>{
+            try { const raw=await env.AUDITS.get(item.name); return raw?JSON.parse(raw):null; } catch(e) { return null; }
+          }));
+          for(const audit of batch) if(audit&&audit.ownerId===user.id) records.push(audit);
+        }
+        if(listed.list_complete||!listed.cursor) break;
+        cursor=listed.cursor;
+      }
+      records.sort((a,b)=>new Date(b.checkedAt)-new Date(a.checkedAt));
+      return reply({audits:records.slice(0,100),count:records.length},200,headers);
+    }
     if(path==="/api/audit"&&request.method==="POST") {
       const user=await getUser();
       if(!user) return reply({error:"Authentication required."},401,headers);
