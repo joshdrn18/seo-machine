@@ -153,6 +153,7 @@ export default {
       "access-control-allow-headers":"content-type,authorization,x-bootstrap-token",
       "access-control-max-age":"86400"
     };
+    try {
     if(request.method==="OPTIONS") return new Response(null,{status:204,headers:headers});
     const path=new URL(request.url).pathname;
 
@@ -241,5 +242,9 @@ export default {
       return new Response(result.body,{status:result.status,headers:h});
     }
     return reply({error:"Not found"},404,headers);
+    } catch (error) {
+      console.error("[SEO Machine API]", new URL(request.url).pathname, error);
+      return reply({error:"Internal server error",diagnostic:String(error?.message || error)},500,headers);
+    }
   }
 };
