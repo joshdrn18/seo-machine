@@ -230,6 +230,45 @@ export default {
       return reply({events:await auth.listActivity(150)},200,headers);
     }
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
+
+    if(path==="/api/projects"&&request.method==="GET") {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
+      const listed=await env.AUDITS.list({prefix:"project:"+user.id+":",limit:100});
+      const projects=[];
+      for(const item of listed.keys||[]) { try { const raw=await env.AUDITS.get(item.name); if(raw) projects.push(JSON.parse(raw)); } catch(e) {} }
+      projects.sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
+      return reply({projects},200,headers);
+    }
+    if(path==="/api/projects"&&request.method==="POST") {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
+      const body=await readBody(),name=String(body?.name||"").trim().slice(0,80),rawUrl=String(body?.url||"").trim();
+      if(!name||!rawUrl||rawUrl.length>2048) return reply({error:"Project name and website URL are required."},400,headers);
+      let parsed; try { parsed=new URL(/^https?:\/\//i.test(rawUrl)?rawUrl:"https://"+rawUrl); } catch(e) { return reply({error:"Enter a valid website URL."},400,headers); }
+      if(!["http:","https:"].includes(parsed.protocol)||!parsed.hostname.includes(".")) return reply({error:"Enter a valid public website URL."},400,headers);
+      const listed=await env.AUDITS.list({prefix:"project:"+user.id+":",limit:100});
+      if((listed.keys||[]).length>=100) return reply({error:"You have reached the 100-project limit."},429,headers);
+      const hostname=parsed.hostname.toLowerCase();
+      for(const item of listed.keys||[]) { const raw=await env.AUDITS.get(item.name); if(raw) { const p=JSON.parse(raw); if(p.hostname===hostname) return reply({error:"This website is already in your projects."},409,headers); } }
+      const now=new Date().toISOString(),project={id:crypto.randomUUID(),ownerId:user.id,name,url:parsed.origin+parsed.pathname.replace(/\/$/,""),hostname,description:String(body.description||"").trim().slice(0,300),status:"active",createdAt:now,updatedAt:now};
+      await env.AUDITS.put("project:"+user.id+":"+project.id,JSON.stringify(project));
+      await event(user.id,"project.created","Created project "+project.name+" · "+project.hostname);
+      return reply({project},201,headers);
+    }
+    if(path.startsWith("/api/projects/")&&(request.method==="PATCH"||request.method==="DELETE")) {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
+      const id=decodeURIComponent(path.slice("/api/projects/".length));
+      if(!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:"Invalid project ID."},400,headers);
+      const key="project:"+user.id+":"+id,raw=await env.AUDITS.get(key); if(!raw) return reply({error:"Project not found."},404,headers);
+      const project=JSON.parse(raw);
+      if(request.method==="DELETE") { await env.AUDITS.delete(key); await event(user.id,"project.deleted","Deleted project "+project.name); return reply({ok:true},200,headers); }
+      const body=await readBody();
+      if(typeof body?.name==="string") { const name=body.name.trim().slice(0,80); if(!name) return reply({error:"Project name cannot be empty."},400,headers); project.name=name; }
+      if(typeof body?.description==="string") project.description=body.description.trim().slice(0,300);
+      if(typeof body?.status==="string"&&["active","paused"].includes(body.status)) project.status=body.status;
+      project.updatedAt=new Date().toISOString(); await env.AUDITS.put(key,JSON.stringify(project));
+      await event(user.id,"project.updated","Updated project "+project.name);
+      return reply({project},200,headers);
+    }
     if(path==="/api/audits"&&request.method==="GET") {
       const user=await getUser();
       if(!user) return reply({error:"Authentication required."},401,headers);
