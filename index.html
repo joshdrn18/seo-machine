@@ -5,6 +5,96 @@
 @media(max-width:1000px){.stats{grid-template-columns:repeat(2,1fr)}.hero,.lower{grid-template-columns:1fr}}@media(max-width:700px){.sidebar{position:fixed;left:-270px;top:0;bottom:0;box-shadow:20px 0 50px #0009}.sidebar.open{left:0}.main{padding:16px 13px 35px}.mobile{display:inline-block}.head{align-items:flex-start;flex-direction:column}.form{flex-direction:column}.form .primary{width:100%}.card{padding:15px}.settings{grid-template-columns:1fr}}
 
 .authgate{position:fixed;inset:0;z-index:100;background:radial-gradient(ellipse at 50% 0,#29204b,transparent 45%),#090b12;display:flex;align-items:center;justify-content:center;padding:20px}.authcard{width:min(440px,100%);background:linear-gradient(145deg,#171e2e,#101521);border:1px solid #343d55;border-radius:22px;padding:28px;box-shadow:0 30px 100px #0009}.authbrand{display:flex;align-items:center;gap:12px;margin-bottom:25px}.authbrand img{width:44px;height:44px}.authbrand b{font-size:14px;letter-spacing:.06em}.authbrand small{display:block;color:var(--muted);font-size:9px;letter-spacing:.16em;margin-top:4px}.authcard h1{font-size:25px;letter-spacing:-.04em;margin:0 0 7px}.authcard>p{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 20px}.authform{display:grid;gap:11px}.authform label{font-size:10px;color:#aeb8cc;display:grid;gap:6px}.authform input{width:100%;background:#0b101b;border:1px solid #343d55;border-radius:10px;padding:12px;color:white;outline:none;font-size:12px}.authform input:focus{border-color:var(--purple);box-shadow:0 0 0 3px #9a7bff20}.authform button{width:100%;margin-top:5px}.authnote{font-size:10px;color:var(--muted);line-height:1.6;margin-top:15px}.autherror{display:none;color:#ff9aa9;background:#ff718512;border:1px solid #ff718533;border-radius:9px;padding:10px;font-size:10px;line-height:1.5}.autherror.show{display:block}.authloading{font-size:10px;color:var(--muted);margin-top:10px}.member-create{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:16px}.member-create input{max-width:none;width:100%}@media(max-width:700px){.authcard{padding:22px}.member-create{grid-template-columns:1fr}.member-create button{width:100%}}
+
+/* ===== SEO MACHINE PREMIUM VISUAL SYSTEM ===== */
+:root{
+ --bg:#080b12;--panel:#101621;--line:#202b3a;--muted:#8491a4;--text:#edf2f7;
+ --purple:#a78bfa;--cyan:#67e8d5;--green:#69d5a6;--red:#fb7185;--amber:#f4c66d;
+ --accent:#a78bfa;--accent2:#67e8d5;
+ font-family:Inter,"SF Pro Display",ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+html{background:var(--bg);scroll-behavior:smooth}
+body{background:radial-gradient(ellipse 55% 38% at 72% -12%,rgba(104,85,174,.16),transparent 72%),radial-gradient(ellipse 40% 35% at 0% 100%,rgba(36,115,117,.08),transparent 75%),var(--bg);letter-spacing:-.012em}
+::selection{background:#a78bfa55;color:#fff}
+button,input,select{font:inherit}
+button{cursor:pointer;transition:background .18s,border-color .18s,color .18s,transform .18s,box-shadow .18s}
+.sidebar{width:258px;background:rgba(10,14,22,.94);border-right:1px solid #1d2735;padding:25px 16px 18px;backdrop-filter:blur(22px)}
+.brand{padding:3px 10px 34px;gap:13px}.mark{width:39px;height:39px;border-radius:12px;filter:drop-shadow(0 5px 18px #9b83ff30)}
+.brand b{font-size:13px;letter-spacing:.095em;font-weight:800}.brand small{font-size:8px;letter-spacing:.22em;color:#758399}
+.label{font-size:8px;letter-spacing:.2em;color:#657287;padding:17px 12px 9px}
+.nav{gap:5px}.nav button{position:relative;min-height:41px;padding:10px 12px;border:1px solid transparent;border-radius:9px;color:#9aa7b9;font-size:11px;font-weight:550;letter-spacing:.005em}
+.nav button:hover{background:#ffffff08;color:#e8edf5;border-color:#ffffff0b}
+.nav button.active{background:linear-gradient(100deg,#a78bfa1b,#67e8d50a);border-color:#a78bfa22;color:#f2efff;box-shadow:none}
+.nav button.active:before{content:"";position:absolute;left:-1px;top:9px;bottom:9px;width:2px;border-radius:3px;background:#b39aff}
+.ico{width:18px;font-size:14px;color:#8c9aaf}
+.admin{background:linear-gradient(135deg,#151e2c,#101722);border:1px solid #283446;border-radius:12px;padding:11px}
+.avatar{border-radius:10px;background:linear-gradient(140deg,#7663b8,#347e83);box-shadow:0 5px 16px #0003}
+.root{font-size:8px;letter-spacing:.08em;background:#a78bfa16;color:#c7b7ff;border:1px solid #a78bfa22}
+.main{padding:28px clamp(20px,3.2vw,48px) 54px;max-width:1700px}
+.top{position:sticky;top:0;z-index:8;margin:-28px calc(clamp(20px,3.2vw,48px)*-1) 34px;padding:17px clamp(20px,3.2vw,48px);background:rgba(8,11,18,.78);border-bottom:1px solid #ffffff0b;backdrop-filter:blur(18px)}
+.crumb{font-size:10px;letter-spacing:.025em;color:#78869a}.crumb b{color:#dce4ee;font-weight:650}
+.actions{gap:8px}.btn,.iconbtn{background:#111925;border:1px solid #263244;color:#aeb9c8;border-radius:9px;padding:9px 12px;font-size:10px;font-weight:600}
+.btn:hover,.iconbtn:hover{background:#1a2534;border-color:#45536a;color:white}
+.primary{background:linear-gradient(115deg,#9b83ed,#7769d8);border:1px solid #b3a0ff55;color:#fff;border-radius:9px;padding:11px 16px;font-size:10px;font-weight:700;letter-spacing:.01em;box-shadow:0 5px 18px #8069d52b}
+.primary:hover{filter:brightness(1.1);box-shadow:0 8px 24px #8069d540;transform:translateY(-1px)}
+.head{margin-bottom:25px;align-items:center}.eyebrow{font-size:8px;letter-spacing:.22em;color:#b5a4fa;font-weight:800}
+.head h1{font-size:clamp(27px,3vw,36px);font-weight:720;letter-spacing:-.055em;margin:9px 0 7px;color:#f2f5fa}
+.head p{font-size:11px;color:#8491a4;line-height:1.65}
+.card{background:linear-gradient(145deg,rgba(19,27,40,.96),rgba(13,19,29,.98));border:1px solid #243044;border-radius:14px;padding:19px;box-shadow:0 12px 34px #00000018;transition:border-color .2s,transform .2s}
+.card:hover{border-color:#34445b}
+.grid{gap:14px}.stats{gap:12px;margin-bottom:14px}
+.stathead{font-size:9px;color:#9aa8bb;font-weight:600;letter-spacing:.025em}
+.statvalue{font-size:30px;font-weight:720;letter-spacing:-.065em;margin:15px 0 5px;color:#f4f6fb;font-variant-numeric:tabular-nums}
+.trend{font-size:9px;color:#77cda9}
+.badgeicon{width:28px;height:28px;border:1px solid #a78bfa20;background:#a78bfa12;border-radius:9px;color:#c4b3ff}
+.hero{grid-template-columns:1.55fr .9fr;margin-bottom:14px}
+.auditbox{padding:26px 27px;background:radial-gradient(ellipse at 93% 5%,#8a76d522,transparent 42%),linear-gradient(125deg,#171d2c,#111925);border-color:#30364b}
+.auditbox h2{font-size:21px;font-weight:680;letter-spacing:-.04em;margin:9px 0 7px}
+.auditbox p{font-size:11px;color:#9aa7b9;margin:0 0 20px}
+.form{gap:9px}.form input{background:#0a1019;border:1px solid #344156;border-radius:9px;padding:13px 14px;font-size:11px;color:#f2f5fa}
+.form input::placeholder{color:#647187}.form input:focus{border-color:#a78bfa;box-shadow:0 0 0 3px #a78bfa18}
+.hint{font-size:9px;color:#718096;margin-top:12px}
+.score{gap:19px;background:linear-gradient(145deg,#151d2a,#101721);border-color:#29364a}
+.ring{filter:drop-shadow(0 0 16px #a78bfa15)}.ringinner b{font-size:27px;font-weight:750;letter-spacing:-.06em}
+.score h3{font-size:12px;font-weight:700}.score p{font-size:10px;line-height:1.7;color:#91a0b4}
+.lower{grid-template-columns:1.2fr .8fr}.section{margin-bottom:14px}.section h3{font-size:11px;font-weight:700;letter-spacing:.005em;color:#e3eaf3}
+.link{font-size:9px;color:#b8a7ff}.link:hover{color:white}
+.activityrow{padding:12px 0;border-bottom:1px solid #202b3a}.siteicon{background:#a78bfa12;border:1px solid #a78bfa20;color:#c5b5ff;border-radius:9px}
+.activityrow b{font-size:10px;font-weight:650;color:#e5ebf4}.activityrow small{font-size:9px;color:#7e8ba0}
+.scoretag{font-size:10px;color:#77d7ad;font-variant-numeric:tabular-nums}
+.empty{padding:31px 20px;color:#758398;font-size:10px;line-height:1.7}
+.barrow{font-size:9px;color:#a6b2c3;margin:17px 0}.bar{height:5px;background:#263143}.bar i{background:linear-gradient(90deg,#a78bfa,#67d8cb);border-radius:8px}
+.tablewrap{border:1px solid #202b3a;border-radius:10px}
+.table{min-width:560px}.table th{font-size:8px;letter-spacing:.15em;color:#78879c;background:#101722;padding:13px 14px}
+.table td{font-size:10px;color:#aeb9c9;padding:14px;border-bottom:1px solid #202a39}
+.table tbody tr:last-child td{border-bottom:0}.table tbody tr:hover td{background:#ffffff04}
+.table td b{font-weight:650;color:#edf2f8}
+.pill{font-size:8px;letter-spacing:.035em;color:#79d8b0;background:#69d5a611;border:1px solid #69d5a622;padding:4px 8px;border-radius:5px}
+.pill.warning{color:#efc779;background:#f4c66d10;border-color:#f4c66d25}.pill.critical{color:#fb8999;background:#fb718510;border-color:#fb718525}
+.findings{gap:8px}.finding{background:#111a26;border:1px solid #253247;border-radius:10px;padding:14px;transition:border-color .18s,background .18s}
+.finding:hover{background:#141f2d;border-color:#3a4960}.finding h4{font-size:10px;font-weight:680;color:#e9eef6}.finding p{font-size:10px;color:#93a1b4;line-height:1.65}.finding small{font-size:9px;color:#b9a9f5}
+.field{background:#0c131e;border:1px solid #2b394d;border-radius:8px;color:#dce5ef;padding:9px 11px;font-size:9px;outline:none}
+.field:focus{border-color:#a78bfa;box-shadow:0 0 0 3px #a78bfa16}
+.settings{gap:14px}.setting{font-size:10px;color:#b8c3d1;border-color:#263244;padding:14px 0}
+.modalback{background:#050810d9;backdrop-filter:blur(12px)}
+.modal{background:linear-gradient(145deg,#182232,#101722);border:1px solid #35445a;border-radius:16px;box-shadow:0 28px 100px #000c;padding:25px}
+.modalhead h2{font-size:20px;letter-spacing:-.04em}.modalclose{background:#202b3b;border:1px solid #35445a;border-radius:8px;color:#dce5ef}
+.detailbox,.explain{background:#0e1723;border:1px solid #2a394d;border-radius:10px}.detailbox small{color:#8190a5}.detailbox b{color:#e8eef6}
+.explain p{font-size:10px;color:#aab7c8;line-height:1.75}
+.authgate{background:radial-gradient(ellipse 55% 42% at 50% -5%,#6c55a52b,transparent 70%),#080b12;backdrop-filter:blur(20px)}
+.authcard{background:linear-gradient(145deg,#151f2e,#0e1621);border:1px solid #2d3a4d;border-radius:17px;padding:32px;box-shadow:0 30px 100px #000b}
+.authbrand{gap:13px}.authbrand img{width:42px;height:42px}.authbrand b{font-size:13px;letter-spacing:.1em}.authbrand small{font-size:8px;letter-spacing:.2em}
+.authcard h1{font-size:27px;font-weight:720;letter-spacing:-.055em}.authcard>p{font-size:11px;line-height:1.7;color:#91a0b4}
+.authform{gap:13px}.authform label{font-size:9px;font-weight:650;color:#aab7c8;letter-spacing:.025em;gap:7px}
+.authform input{background:#0a111b;border:1px solid #2e3c50;border-radius:9px;padding:13px 12px;color:#eef3f9;font-size:11px}
+.authform input::placeholder{color:#65748a}.authform input:focus{border-color:#a78bfa;box-shadow:0 0 0 3px #a78bfa18}
+.authnote{font-size:9px;color:#75859a;line-height:1.7}
+.toast{background:#172334;border:1px solid #3a4a60;border-radius:9px;box-shadow:0 12px 35px #0008;font-size:10px}
+:focus-visible{outline:2px solid #b5a2ff;outline-offset:2px}
+@media(max-width:1000px){.main{padding-left:24px;padding-right:24px}.top{margin-left:-24px;margin-right:-24px;padding-left:24px;padding-right:24px}}
+@media(max-width:700px){.sidebar{background:#0b111b;border-right:1px solid #2b394d}.main{padding:15px 13px 35px}.top{margin:-15px -13px 25px;padding:13px}.head h1{font-size:27px}.card{padding:15px}.auditbox{padding:19px}.stats{gap:9px}.statvalue{font-size:26px}.actions{gap:6px}.actions .root{display:none}.authcard{padding:23px}.modal{padding:17px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
 </style></head><body>
 <div class="authgate" id="authGate"><div class="authcard"><div class="authbrand"><img src="/assets/seo-machine-icon.svg" alt="SEO Machine"><div><b>SEO MACHINE</b><small>SECURE WORKSPACE</small></div></div>
 <div id="authLoginPanel"><div class="eyebrow">WELCOME BACK</div><h1>Sign in to your workspace</h1><p>Access your SEO audits, projects and account activity securely.</p><form class="authform" id="loginForm"><label>Email address<input id="loginEmail" type="email" autocomplete="username" required placeholder="you@example.com"></label><label>Password<input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Your password"></label><button class="primary" type="submit" id="loginSubmit">Sign in</button></form></div>
