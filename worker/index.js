@@ -145,12 +145,12 @@ export class AuthDirectory extends DurableObject {
 
 export default {
   async fetch(request,env) {
-    // This API uses explicit bearer/bootstrap tokens, never browser cookies.
+    // This API uses explicit bearer session tokens, never browser cookies.
     // A wildcard CORS policy avoids Pages preview/custom-domain origin mismatches.
     const headers={
       "access-control-allow-origin":"*",
       "access-control-allow-methods":"GET, POST, OPTIONS",
-      "access-control-allow-headers":"content-type,authorization,x-bootstrap-token",
+      "access-control-allow-headers":"content-type,authorization",
       "access-control-max-age":"86400"
     };
     try {
@@ -178,7 +178,6 @@ export default {
     const event = async (userId,action,detail) => auth.addActivity(userId,action,detail);
     if(path==="/api/auth/status"&&request.method==="GET") return reply({ok:true,setupRequired:(await auth.countAccounts())===0},200,headers);
     if(path==="/api/auth/bootstrap"&&request.method==="POST") {
-      if(!env.BOOTSTRAP_TOKEN || request.headers.get("x-bootstrap-token")!==env.BOOTSTRAP_TOKEN) return reply({error:"Invalid setup token."},403,headers);
       const body=await readBody();
       if(!body || typeof body.email!=="string" || typeof body.password!=="string" || body.password.length<12 || body.password.length>128 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email) || body.email.length>254) return reply({error:"Enter a valid email and a password of at least 12 characters."},400,headers);
       const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
@@ -186,7 +185,7 @@ export default {
       const user={id:crypto.randomUUID(),email:body.email.trim().toLowerCase(),name:String(body.name||"Super Admin").trim().slice(0,80)||"Super Admin",passwordSalt:salt,passwordHash:await passwordHash(body.password,salt),createdAt:now};
       try { const result=await auth.createFirstAdmin(user); if(!result.created) return reply({error:"Initial admin setup has already been completed."},409,headers); }
       catch(e) { return reply({error:"Could not create the initial account. The email may already exist."},409,headers); }
-      return reply({ok:true,message:"Super Admin created. Remove the bootstrap token from Worker secrets now."},201,headers);
+      return reply({ok:true,message:"Super Admin account created."},201,headers);
     }
     if(path==="/api/auth/login"&&request.method==="POST") {
       const body=await readBody();
