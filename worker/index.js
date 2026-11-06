@@ -254,8 +254,7 @@ export default {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
       const body=await readBody(),name=String(body?.name||"").trim().slice(0,80),rawUrl=String(body?.url||"").trim();
       if(!name||!rawUrl||rawUrl.length>2048) return reply({error:"Project name and website URL are required."},400,headers);
-      let parsed; try { parsed=new URL(/^https?:\/\//i.test(rawUrl)?rawUrl:"https://"+rawUrl); } catch(e) { return reply({error:"Enter a valid website URL."},400,headers); }
-      if(!["http:","https:"].includes(parsed.protocol)||!parsed.hostname.includes(".")) return reply({error:"Enter a valid public website URL."},400,headers);
+      let parsed; try { parsed=parseUrl(/^https?:\/\//i.test(rawUrl)?rawUrl:"https://"+rawUrl); } catch(e) { return reply({error:e.message||"Enter a valid public website URL."},400,headers); }
       const listed=await env.AUDITS.list({prefix:"project:"+user.id+":",limit:100});
       if((listed.keys||[]).length>=100) return reply({error:"You have reached the 100-project limit."},429,headers);
       const hostname=parsed.hostname.toLowerCase();
