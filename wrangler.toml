@@ -16,3 +16,6 @@ class_name = "AuthDirectory"
 [[migrations]]
 tag = "v1-auth-directory"
 new_sqlite_classes = ["AuthDirectory"]
+
+[triggers]
+crons = ["*/15 * * * *"]
