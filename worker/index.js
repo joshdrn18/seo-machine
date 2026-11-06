@@ -324,4 +324,32 @@ export default {
       return reply({error:"Internal server error",diagnostic:String(error?.message || error)},500,headers);
     }
   }
+  async scheduled(event,env,ctx) {
+    ctx.waitUntil((async()=>{
+      let cursor;
+      for(let page=0;page<10;page++) {
+        const listed=await env.AUDITS.list({prefix:"project:",limit:500,...(cursor?{cursor}:{})});
+        for(const item of listed.keys||[]) {
+          if(item.name.split(":").length!==3) continue;
+          let project; try { const raw=await env.AUDITS.get(item.name); if(!raw) continue; project=JSON.parse(raw); } catch(e) { continue; }
+          if(!project.monitoringEnabled||project.status!=="active"||!project.nextCheckAt||new Date(project.nextCheckAt).getTime()>Date.now()) continue;
+          let result={ok:false,httpStatus:null,error:"Connection failed or timed out"};
+          try {
+            const target=parseUrl(project.url);
+            const response=await fetch(target.href,{method:"GET",redirect:"manual",signal:AbortSignal.timeout(10000),headers:{"user-agent":"SEOMachineMonitor/1.0","accept":"text/html,application/xhtml+xml"}});
+            if(response.body) await response.body.cancel();
+            result={ok:response.status>=200&&response.status<400,httpStatus:response.status,error:null};
+          } catch(e) {}
+          const checkedAt=new Date().toISOString(),record={projectId:project.id,hostname:project.hostname,checkedAt,ok:result.ok,httpStatus:result.httpStatus,error:result.error};
+          await env.AUDITS.put("monitor:"+project.id+":"+Date.now()+":"+crypto.randomUUID(),JSON.stringify(record),{expirationTtl:2592000});
+          project.lastCheckAt=checkedAt; project.lastHttpStatus=result.httpStatus; project.lastMonitorStatus=result.ok?"online":"down";
+          project.nextCheckAt=new Date(Date.now()+(Number([6,12,24].includes(project.monitorIntervalHours)?project.monitorIntervalHours:24))*3600000).toISOString();
+          project.updatedAt=checkedAt; await env.AUDITS.put(item.name,JSON.stringify(project));
+        }
+        if(listed.list_complete||!listed.cursor) break;
+        cursor=listed.cursor;
+      }
+    })());
+  }
+
 };
