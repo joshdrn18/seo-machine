@@ -231,6 +231,17 @@ export default {
     }
     if(path==="/api/health"&&request.method==="GET") return reply({ok:true,service:"SEO Machine API",version:"0.1.0",database:!!env.DB,persistence:!!env.AUDITS},200,headers);
 
+    if(path.startsWith("/api/projects/")&&path.endsWith("/monitor-history")&&request.method==="GET") {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
+      const id=decodeURIComponent(path.slice("/api/projects/".length,-"/monitor-history".length));
+      if(!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:"Invalid project ID."},400,headers);
+      const key="project:"+user.id+":"+id,raw=await env.AUDITS.get(key); if(!raw) return reply({error:"Project not found."},404,headers);
+      const listed=await env.AUDITS.list({prefix:"monitor:"+id+":",limit:100});
+      const history=[];
+      for(const item of listed.keys||[]) { try { const value=await env.AUDITS.get(item.name); if(value) history.push(JSON.parse(value)); } catch(e) {} }
+      history.sort((a,b)=>new Date(b.checkedAt)-new Date(a.checkedAt));
+      return reply({history:history.slice(0,50)},200,headers);
+    }
     if(path==="/api/projects"&&request.method==="GET") {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
       const listed=await env.AUDITS.list({prefix:"project:"+user.id+":",limit:100});
@@ -249,7 +260,7 @@ export default {
       if((listed.keys||[]).length>=100) return reply({error:"You have reached the 100-project limit."},429,headers);
       const hostname=parsed.hostname.toLowerCase();
       for(const item of listed.keys||[]) { const raw=await env.AUDITS.get(item.name); if(raw) { const p=JSON.parse(raw); if(p.hostname===hostname) return reply({error:"This website is already in your projects."},409,headers); } }
-      const now=new Date().toISOString(),project={id:crypto.randomUUID(),ownerId:user.id,name,url:parsed.origin+parsed.pathname.replace(/\/$/,""),hostname,description:String(body.description||"").trim().slice(0,300),status:"active",createdAt:now,updatedAt:now};
+      const now=new Date().toISOString(),project={id:crypto.randomUUID(),ownerId:user.id,name,url:parsed.origin+parsed.pathname.replace(/\/$/,""),hostname,description:String(body.description||"").trim().slice(0,300),status:"active",monitoringEnabled:false,monitorIntervalHours:24,nextCheckAt:null,lastCheckAt:null,lastMonitorStatus:"not_configured",createdAt:now,updatedAt:now};
       await env.AUDITS.put("project:"+user.id+":"+project.id,JSON.stringify(project));
       await event(user.id,"project.created","Created project "+project.name+" · "+project.hostname);
       return reply({project},201,headers);
@@ -265,6 +276,14 @@ export default {
       if(typeof body?.name==="string") { const name=body.name.trim().slice(0,80); if(!name) return reply({error:"Project name cannot be empty."},400,headers); project.name=name; }
       if(typeof body?.description==="string") project.description=body.description.trim().slice(0,300);
       if(typeof body?.status==="string"&&["active","paused"].includes(body.status)) project.status=body.status;
+      if(typeof body?.monitoringEnabled==="boolean") {
+        project.monitoringEnabled=body.monitoringEnabled;
+        project.nextCheckAt=body.monitoringEnabled?new Date().toISOString():null;
+      }
+      if([6,12,24].includes(Number(body?.monitorIntervalHours))) {
+        project.monitorIntervalHours=Number(body.monitorIntervalHours);
+        if(project.monitoringEnabled) project.nextCheckAt=new Date().toISOString();
+      }
       project.updatedAt=new Date().toISOString(); await env.AUDITS.put(key,JSON.stringify(project));
       await event(user.id,"project.updated","Updated project "+project.name);
       return reply({project},200,headers);
