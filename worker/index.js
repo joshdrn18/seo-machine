@@ -17,14 +17,24 @@ function parseUrl(value) {
   return u;
 }
 function extract(html, regex) { const m=regex.exec(html); return m ? m[1].replace(/<[^>]*>/g," ").replace(/&amp;/gi,"&").replace(/&nbsp;/gi," ").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/\s+/g," ").trim() : ""; }
-function analyze(html,url,status,headers) {
-  const title=extract(html,/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const description=extract(html,/<meta\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
-  const canonical=/<link\b(?=[^>]*rel=["']canonical["'])(?=[^>]*href=["'][^"']+["'])[^>]*>/i.test(html);
-  const h1=(html.match(/<h1\b/gi)||[]).length, headings=(html.match(/<h[1-6]\b/gi)||[]).length;
-  const imgs=html.match(/<img\b[^>]*>/gi)||[], missing=imgs.filter(x=>!/\balt\s*=/.test(x)).length;
-  const viewport=/<meta\b(?=[^>]*name=["']viewport["'])/i.test(html);
-  const robots=extract(html,/<meta\b(?=[^>]*name=["']robots["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i);
+function attr(tag,name){const m=tag.match(new RegExp("\\b"+name+"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))","i"));return m?(m[1]??m[2]??m[3]??"").trim():"";}
+function analyze(html,url,status,headers,extras={}) {
+  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
+  const description=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const canonicalTag=(html.match(/<link\\b[^>]*>/gi)||[]).find(tag=>/(^|\\s)canonical(\\s|$)/i.test(attr(tag,"rel")));
+  const canonicalHref=canonicalTag?attr(canonicalTag,"href"):"";
+  let canonicalValid=false,canonicalDetails="No canonical link element was detected.";
+  if(canonicalHref){try{const canonicalUrl=new URL(canonicalHref,url);canonicalValid=canonicalUrl.protocol==="https:"||canonicalUrl.protocol==="http:";canonicalDetails="Canonical points to "+canonicalUrl.href+(canonicalUrl.origin!==url.origin?" (different origin).":"");}catch{canonicalDetails="Canonical href is not a valid URL: "+canonicalHref;}}
+  const h1=(html.match(/<h1\\b/gi)||[]).length, headings=(html.match(/<h[1-6]\\b/gi)||[]).length;
+  const imgs=html.match(/<img\\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\\balt\\s*=/.test(x)).length;
+  const viewport=/<meta\\b(?=[^>]*name=["']viewport["'])/i.test(html);
+  const robotsMeta=(html.match(/<meta\\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
+  const robots=robotsMeta?attr(robotsMeta,"content"):"";
+  const xRobots=headers.get("x-robots-tag")||"";
+  const robotsCombined=[robots,xRobots].filter(Boolean).join("; ");
+  const jsonLd=(html.match(/<script\\b[^>]*type=["']application\\/ld\\+json["'][^>]*>[\\s\\S]*?<\\/script>/gi)||[]);
+  let jsonLdValid=0,jsonLdInvalid=0;
+  for(const block of jsonLd){const raw=block.replace(/^<script\\b[^>]*>/i,"").replace(/<\\/script>\\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
   const findings=[];
   function add(category,severity,titleText,details,recommendation){findings.push({category:category,severity:severity,title:titleText,details:details,recommendation:recommendation});}
   add("Technical",status>=200&&status<400?"passed":"critical","HTTP response","The page returned HTTP "+status+".","Keep the page reachable and return a successful status code.");
@@ -32,15 +42,41 @@ function analyze(html,url,status,headers) {
   add("On-page",!description?"critical":description.length>=70&&description.length<=160?"passed":"warning","Meta description",description?"Found a "+description.length+"-character description.":"No meta description was detected.","Write a compelling page-specific description of roughly 70–160 characters.");
   add("On-page",h1===1?"passed":"warning","H1 heading","Found "+h1+" H1 heading(s).","Use one clear primary H1 that describes the page.");
   add("On-page",headings>0?"passed":"warning","Heading structure","Detected "+headings+" heading elements.","Organize content with descriptive, logically nested headings.");
-  add("Technical",canonical?"passed":"warning","Canonical URL",canonical?"A canonical link element was found.":"No canonical link element was detected.","Add an absolute canonical URL when duplicate or alternate URLs may exist.");
+  add("Technical",!canonicalHref?"warning":canonicalValid?"passed":"critical","Canonical URL",canonicalDetails,"Set one valid, absolute canonical URL that points to the preferred indexable page.");
   add("Technical",viewport?"passed":"warning","Mobile viewport",viewport?"A viewport meta tag was found.":"No viewport meta tag was detected.","Add a responsive viewport meta tag for mobile browsers.");
   add("Images",missing===0?"passed":"warning","Image alternative text",missing+" of "+imgs.length+" images appear to be missing an alt attribute.","Add useful alt text to informative images and empty alt text to decorative images.");
-  add("Technical",/noindex/i.test(robots)?"critical":"passed","Robots directives",robots?"Robots meta: "+robots:"No noindex directive was detected in the robots meta tag.","Confirm indexing directives match your publishing intent.");
-  add("Security",url.protocol==="https:"?"passed":"critical","HTTPS",url.protocol==="https:"?"The URL uses HTTPS.":"The URL uses HTTP.","Serve the site over HTTPS and redirect HTTP to HTTPS.");
-  add("Technical",(headers.get("content-type")||"").includes("text/html")?"passed":"warning","HTML content type","Content-Type: "+(headers.get("content-type")||"not provided")+".","Serve HTML documents with a text/html content type.");
+  add("Technical",/noindex|none/i.test(robotsCombined)?"critical":"passed","Robots directives",robotsCombined?"Robots directives: "+robotsCombined:"No noindex directive was detected in the page meta or X-Robots-Tag header.","Confirm that noindex is intentional; remove it from pages that should appear in search.");
+  add("Technical",url.protocol==="https:"?"passed":"critical","HTTPS",url.protocol==="https:"?"The URL uses HTTPS.":"The URL uses HTTP.","Serve the site over HTTPS and redirect HTTP to HTTPS.");
+  add("Technical",(headers.get("content-type")||"").toLowerCase().includes("text/html")?"passed":"warning","HTML content type","Content-Type: "+(headers.get("content-type")||"not provided")+".","Serve HTML documents with a text/html content type.");
+  add("Structured data",jsonLdInvalid?"warning":jsonLdValid?"passed":"warning","JSON-LD structured data",jsonLd.length?jsonLdValid+" valid JSON-LD block(s), "+jsonLdInvalid+" invalid block(s) detected.":"No JSON-LD structured data block was detected.","Add valid Schema.org JSON-LD where relevant, and validate each block before publishing.");
+  const robotsCheck=extras.robots||{status:0,ok:false,missing:true};
+  add("Crawlability",robotsCheck.ok?"passed":robotsCheck.missing?"passed":"warning","robots.txt",robotsCheck.ok?"robots.txt returned HTTP "+robotsCheck.status+".":robotsCheck.missing?"No robots.txt file was found; crawlers can still crawl by default.":"robots.txt check returned HTTP "+robotsCheck.status+".","Keep robots.txt reachable and ensure it does not block important pages or assets.");
+  const mapCheck=extras.sitemap||{status:0,ok:false,missing:true,count:0};
+  add("Indexing",mapCheck.ok&&mapCheck.count>0?"passed":mapCheck.missing?"warning":mapCheck.ok?"warning":"warning","XML sitemap",mapCheck.ok?"Sitemap returned HTTP "+mapCheck.status+" and contains "+mapCheck.count+" URL/location entries.":mapCheck.missing?"No sitemap was found at the advertised or default location.":"Sitemap check returned HTTP "+mapCheck.status+".","Publish a valid XML sitemap, include canonical indexable URLs, and submit its URL in Google Search Console.");
   const passed=findings.filter(f=>f.severity==="passed").length, warnings=findings.filter(f=>f.severity==="warning").length, critical=findings.filter(f=>f.severity==="critical").length;
   const score=Math.max(0,Math.round(findings.reduce((n,f)=>n+(f.severity==="passed"?10:f.severity==="warning"?5:0),0)/findings.length*10));
-  return {url:url.href,hostname:url.hostname,status:status,title:title,description:description,score:score,findings:findings,summary:{passed:passed,warnings:warnings,critical:critical,total:findings.length},checkedAt:new Date().toISOString()};
+  return {url:url.href,hostname:url.hostname,status:status,title:title,description:description,score:score,findings:findings,summary:{passed:passed,warnings:warnings,critical:critical,total:findings.length},checkedAt:new Date().toISOString(),technical:{canonical:canonicalHref||null,robots:robotsCombined||null,jsonLdValid,jsonLdInvalid,sitemapUrls:mapCheck.count||0}};
+}
+async function fetchAuditText(url,maxBytes=262144,timeoutMs=5000){
+  let response;
+  try{response=await fetch(url.href,{redirect:"manual",signal:AbortSignal.timeout(timeoutMs),headers:{"user-agent":"SEOMachineBot/1.1","accept":"text/plain,application/xml,text/xml,*/*"}});}
+  catch{return {ok:false,status:0,missing:false,text:""};}
+  if(response.status===404||response.status===410)return {ok:false,status:response.status,missing:true,text:""};
+  if(!response.ok||[301,302,303,307,308].includes(response.status))return {ok:false,status:response.status,missing:false,text:""};
+  const reader=response.body?.getReader();let textBody="",size=0;
+  if(reader){const decoder=new TextDecoder();while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>maxBytes){await reader.cancel();return {ok:false,status:response.status,missing:false,text:""};}textBody+=decoder.decode(part.value,{stream:true});}textBody+=decoder.decode();}
+  return {ok:true,status:response.status,missing:false,text:textBody};
+}
+async function inspectCrawlFiles(target){
+  const origin=new URL(target.origin);
+  const robotsUrl=new URL("/robots.txt",origin);
+  const robots=await fetchAuditText(robotsUrl,262144,5000);
+  let sitemapUrl=null;
+  if(robots.ok){const declared=robots.text.match(/^\\s*Sitemap:\\s*(\\S+)/im);if(declared){try{const parsed=new URL(declared[1],origin);if(parsed.origin===origin.origin&&parsed.protocol==="https:")sitemapUrl=parsed;}catch{}}}
+  if(!sitemapUrl)sitemapUrl=new URL("/sitemap.xml",origin);
+  const sitemap=await fetchAuditText(sitemapUrl,524288,6000);
+  if(sitemap.ok){const locs=sitemap.text.match(/<(?:url|sitemap)\\b[^>]*>/gi)||[];sitemap.count=locs.length;}
+  return {robots,sitemap};
 }
 async function doAudit(request,env,user) {
   const body=await request.json().catch(()=>null);
@@ -61,7 +97,7 @@ async function doAudit(request,env,user) {
   if(!(response.headers.get("content-type")||"").includes("text/html")) return reply({error:"The URL did not return an HTML page."},422);
   const reader=response.body&&response.body.getReader(); let html="",size=0;
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
-  const audit=analyze(html,target,response.status,response.headers);
+  const crawlFiles=await inspectCrawlFiles(target);\n  const audit=analyze(html,target,response.status,response.headers,crawlFiles);
   audit.ownerId=user.id; audit.ownerEmail=user.email;
   audit.id=crypto.randomUUID();
   try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+audit.id,JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
