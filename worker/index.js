@@ -439,6 +439,28 @@ export default {
       await event(user.id,"project.updated","Updated project "+project.name);
       return reply({project},200,headers);
     }
+    if(path==="/api/score-history"&&request.method==="GET") {
+      const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers);
+      const grouped=new Map();let cursor,scanned=0;
+      for(let page=0;page<10;page++) {
+        const listed=await env.AUDITS.list({prefix:"audit:",limit:1000,...(cursor?{cursor}:{})});
+        const keys=listed.keys||[];
+        for(let i=0;i<keys.length;i+=40) {
+          const batch=await Promise.all(keys.slice(i,i+40).map(async item=>{try{const raw=await env.AUDITS.get(item.name);return raw?JSON.parse(raw):null}catch(e){return null}}));
+          for(const audit of batch) {
+            if(!audit||audit.ownerId!==user.id||!audit.hostname||!Number.isFinite(Number(audit.score)))continue;
+            scanned++;const hostname=String(audit.hostname).toLowerCase().replace(/^www\./,"");
+            if(!grouped.has(hostname))grouped.set(hostname,{hostname,url:audit.url,title:audit.title||"",history:[]});
+            const site=grouped.get(hostname);
+            if(new Date(audit.checkedAt)>new Date(site.history[site.history.length-1]?.checkedAt||0)){site.url=audit.url||site.url;site.title=audit.title||site.title;}
+            site.history.push({id:audit.id||null,url:audit.url,checkedAt:audit.checkedAt,score:Number(audit.score),summary:audit.summary||{passed:0,warnings:0,critical:0}});
+          }
+        }
+        if(listed.list_complete||!listed.cursor)break;cursor=listed.cursor;
+      }
+      const sites=[...grouped.values()].map(site=>{site.history.sort((a,b)=>new Date(a.checkedAt)-new Date(b.checkedAt));const first=site.history[0],latest=site.history[site.history.length-1],previous=site.history.length>1?site.history[site.history.length-2]:null;return {...site,audits:site.history.length,currentScore:latest.score,previousScore:previous?previous.score:null,change:previous?latest.score-previous.score:null,trend:!previous?"new":latest.score>previous.score?"improving":latest.score<previous.score?"declining":"stable",firstScore:first.score,lastAuditAt:latest.checkedAt,history:site.history.slice(-30).reverse()}}).sort((a,b)=>new Date(b.lastAuditAt)-new Date(a.lastAuditAt));
+      return reply({sites,totalSites:sites.length,totalAudits:sites.reduce((sum,x)=>sum+x.audits,0),scannedRecords:scanned,retentionDays:30},200,headers);
+    }
     if(path==="/api/audits"&&request.method==="GET") {
       const user=await getUser();
       if(!user) return reply({error:"Authentication required."},401,headers);
