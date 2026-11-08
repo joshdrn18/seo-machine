@@ -19,22 +19,22 @@ function parseUrl(value) {
 function extract(html, regex) { const m=regex.exec(html); return m ? m[1].replace(/<[^>]*>/g," ").replace(/&amp;/gi,"&").replace(/&nbsp;/gi," ").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/\s+/g," ").trim() : ""; }
 function attr(tag,name){const m=tag.match(new RegExp("\\b"+name+"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))","i"));return m?(m[1]??m[2]??m[3]??"").trim():"";}
 function analyze(html,url,status,headers,extras={}) {
-  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
-  const description=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
-  const canonicalTag=(html.match(/<link\\b[^>]*>/gi)||[]).find(tag=>/(^|\\s)canonical(\\s|$)/i.test(attr(tag,"rel")));
+  const title=extract(html,/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const description=extract(html,/<meta\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const canonicalTag=(html.match(/<link\b[^>]*>/gi)||[]).find(tag=>/(^|\s)canonical(\s|$)/i.test(attr(tag,"rel")));
   const canonicalHref=canonicalTag?attr(canonicalTag,"href"):"";
   let canonicalValid=false,canonicalDetails="No canonical link element was detected.";
   if(canonicalHref){try{const canonicalUrl=new URL(canonicalHref,url);canonicalValid=canonicalUrl.protocol==="https:"||canonicalUrl.protocol==="http:";canonicalDetails="Canonical points to "+canonicalUrl.href+(canonicalUrl.origin!==url.origin?" (different origin).":"");}catch{canonicalDetails="Canonical href is not a valid URL: "+canonicalHref;}}
-  const h1=(html.match(/<h1\\b/gi)||[]).length, headings=(html.match(/<h[1-6]\\b/gi)||[]).length;
-  const imgs=html.match(/<img\\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\\balt\\s*=/.test(x)).length;
-  const viewport=/<meta\\b(?=[^>]*name=["']viewport["'])/i.test(html);
-  const robotsMeta=(html.match(/<meta\\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
+  const h1=(html.match(/<h1\b/gi)||[]).length, headings=(html.match(/<h[1-6]\b/gi)||[]).length;
+  const imgs=html.match(/<img\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\balt\s*=/.test(x)).length;
+  const viewport=/<meta\b(?=[^>]*name=["']viewport["'])/i.test(html);
+  const robotsMeta=(html.match(/<meta\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
   const robots=robotsMeta?attr(robotsMeta,"content"):"";
   const xRobots=headers.get("x-robots-tag")||"";
   const robotsCombined=[robots,xRobots].filter(Boolean).join("; ");
-  const jsonLd=(html.match(/<script\\b[^>]*type=["']application\\/ld\\+json["'][^>]*>[\\s\\S]*?<\\/script>/gi)||[]);
+  const jsonLd=(html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi)||[]);
   let jsonLdValid=0,jsonLdInvalid=0;
-  for(const block of jsonLd){const raw=block.replace(/^<script\\b[^>]*>/i,"").replace(/<\\/script>\\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
+  for(const block of jsonLd){const raw=block.replace(/^<script\b[^>]*>/i,"").replace(/<\/script>\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
   const findings=[];
   function add(category,severity,titleText,details,recommendation){findings.push({category:category,severity:severity,title:titleText,details:details,recommendation:recommendation});}
   add("Technical",status>=200&&status<400?"passed":"critical","HTTP response","The page returned HTTP "+status+".","Keep the page reachable and return a successful status code.");
@@ -72,10 +72,10 @@ async function inspectCrawlFiles(target){
   const robotsUrl=new URL("/robots.txt",origin);
   const robots=await fetchAuditText(robotsUrl,262144,5000);
   let sitemapUrl=null;
-  if(robots.ok){const declared=robots.text.match(/^\\s*Sitemap:\\s*(\\S+)/im);if(declared){try{const parsed=new URL(declared[1],origin);if(parsed.origin===origin.origin&&parsed.protocol==="https:")sitemapUrl=parsed;}catch{}}}
+  if(robots.ok){const declared=robots.text.match(/^\s*Sitemap:\s*(\S+)/im);if(declared){try{const parsed=new URL(declared[1],origin);if(parsed.origin===origin.origin&&parsed.protocol==="https:")sitemapUrl=parsed;}catch{}}}
   if(!sitemapUrl)sitemapUrl=new URL("/sitemap.xml",origin);
   const sitemap=await fetchAuditText(sitemapUrl,524288,6000);
-  if(sitemap.ok){const locs=sitemap.text.match(/<(?:url|sitemap)\\b[^>]*>/gi)||[];sitemap.count=locs.length;}
+  if(sitemap.ok){const locs=sitemap.text.match(/<(?:url|sitemap)\b[^>]*>/gi)||[];sitemap.count=locs.length;}
   return {robots,sitemap};
 }
 async function doAudit(request,env,user) {
@@ -97,7 +97,8 @@ async function doAudit(request,env,user) {
   if(!(response.headers.get("content-type")||"").includes("text/html")) return reply({error:"The URL did not return an HTML page."},422);
   const reader=response.body&&response.body.getReader(); let html="",size=0;
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
-  const crawlFiles=await inspectCrawlFiles(target);\n  const audit=analyze(html,target,response.status,response.headers,crawlFiles);
+  const crawlFiles=await inspectCrawlFiles(target);
+  const audit=analyze(html,target,response.status,response.headers,crawlFiles);
   audit.ownerId=user.id; audit.ownerEmail=user.email;
   audit.id=crypto.randomUUID();
   try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+audit.id,JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
