@@ -75,7 +75,7 @@ async function inspectCrawlFiles(target){
   if(robots.ok){const declared=robots.text.match(/^\s*Sitemap:\s*(\S+)/im);if(declared){try{const parsed=new URL(declared[1],origin);if(parsed.origin===origin.origin)sitemapUrl=parsed;}catch{}}}
   if(!sitemapUrl)sitemapUrl=new URL("/sitemap.xml",origin);
   const sitemap=await fetchAuditText(sitemapUrl,524288,6000);
-  if(sitemap.ok){const locs=sitemap.text.match(/<(?:url|sitemap)\b[^>]*>/gi)||[];sitemap.count=locs.length;}
+  if(sitemap.ok){sitemap.valid=/<(?:[a-z0-9_-]+:)?(?:urlset|sitemapindex)\b/i.test(sitemap.text);const locs=sitemap.text.match(/<(?:[a-z0-9_-]+:)?(?:url|sitemap)\b[^>]*>/gi)||[];sitemap.count=sitemap.valid?locs.length:0;}
   return {robots,sitemap};
 }
 async function doAudit(request,env,user) {
