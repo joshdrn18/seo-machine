@@ -297,6 +297,43 @@ export default {
       catch(e) { return reply({error:"Could not create member. The email may already be registered."},409,headers); }
       return reply({ok:true,user:{id:member.id,email:member.email,name:member.name,role:"member",status:"active",created_at:now}},201,headers);
     }
+    if(path==="/api/admin/analytics"&&request.method==="GET") {
+      const actor=await getUser();
+      if(!actor) return reply({error:"Authentication required."},401,headers);
+      if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      const users=(await auth.listUsers()).filter(x=>x.role==="member");
+      const now=Date.now(),days=30,dayMs=86400000,start=now-days*dayMs;
+      const daily=Array.from({length:days},(_,i)=>{const d=new Date(start+(i*dayMs));return {date:d.toISOString().slice(0,10),signups:0,audits:0};});
+      const dayMap=new Map(daily.map(x=>[x.date,x]));
+      const memberMap=new Map(users.map(x=>[x.id,{id:x.id,name:x.name,email:x.email,status:x.status,websites:0,audits:0,scoreTotal:0,scoreCount:0}]));
+      for(const user of users) {
+        const projects=await env.AUDITS.list({prefix:"project:"+user.id+":",limit:100});
+        memberMap.get(user.id).websites=(projects.keys||[]).length;
+        const created=Date.parse(user.created_at||"");
+        if(Number.isFinite(created)&&created>=start){const bucket=dayMap.get(new Date(created).toISOString().slice(0,10));if(bucket)bucket.signups++;}
+      }
+      let cursor,scanned=0,totalAudits=0;
+      for(let page=0;page<10;page++) {
+        const listed=await env.AUDITS.list({prefix:"audit:",limit:1000,...(cursor?{cursor}:{})});
+        const keys=listed.keys||[];
+        for(let i=0;i<keys.length;i+=40) {
+          const batch=await Promise.all(keys.slice(i,i+40).map(async item=>{try{const raw=await env.AUDITS.get(item.name);return raw?JSON.parse(raw):null}catch(e){return null}}));
+          for(const audit of batch) {
+            if(!audit)continue;scanned++;
+            const when=Date.parse(audit.checkedAt||"");
+            if(!Number.isFinite(when)||when<start)continue;
+            totalAudits++;
+            const bucket=dayMap.get(new Date(when).toISOString().slice(0,10));if(bucket)bucket.audits++;
+            const member=memberMap.get(audit.ownerId);
+            if(member){member.audits++;member.scoreTotal+=Number(audit.score)||0;member.scoreCount++;}
+          }
+        }
+        if(listed.list_complete||!listed.cursor)break;
+        cursor=listed.cursor;
+      }
+      const members=[...memberMap.values()].sort((a,b)=>b.audits-a.audits||b.websites-a.websites).slice(0,10).map(x=>({...x,averageScore:x.scoreCount?Math.round(x.scoreTotal/x.scoreCount):null}));
+      return reply({periodDays:days,totalMembers:users.length,activeMembers:users.filter(x=>x.status==="active").length,newMembers:daily.reduce((s,x)=>s+x.signups,0),websites:[...memberMap.values()].reduce((s,x)=>s+x.websites,0),audits:totalAudits,daily,topMembers:members,scannedAuditRecords:scanned},200,headers);
+    }
     if(path==="/api/admin/activity"&&request.method==="GET") {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       return reply({events:await auth.listActivity(150)},200,headers);
