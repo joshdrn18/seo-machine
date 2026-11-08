@@ -51,6 +51,8 @@ function analyze(html,url,status,headers,extras={}) {
   add("Structured data",jsonLdInvalid?"warning":jsonLdValid?"passed":"warning","JSON-LD structured data",jsonLd.length?jsonLdValid+" valid JSON-LD block(s), "+jsonLdInvalid+" invalid block(s) detected.":"No JSON-LD structured data block was detected.","Add valid Schema.org JSON-LD where relevant, and validate each block before publishing.");
   const robotsCheck=extras.robots||{status:0,ok:false,missing:true};
   add("Crawlability",robotsCheck.ok?"passed":robotsCheck.missing?"passed":"warning","robots.txt",robotsCheck.ok?"robots.txt returned HTTP "+robotsCheck.status+".":robotsCheck.missing?"No robots.txt file was found; crawlers can still crawl by default.":"robots.txt check returned HTTP "+robotsCheck.status+".","Keep robots.txt reachable and ensure it does not block important pages or assets.");
+  const links=extras.internalLinks||{checked:0,broken:[]};
+  add("Links",links.broken.length?"warning":"passed","Internal links",links.checked?links.checked+" same-origin links checked; "+links.broken.length+" returned an error or could not be reached."+(!links.broken.length?" No broken responses were detected.":" Examples: "+links.broken.slice(0,3).map(x=>x.url+" (HTTP "+(x.status||"timeout")+")").join(", ")):"No same-origin links were available to test.","Fix internal links that return 4xx/5xx responses or time out, and update links to the correct destination.");
   const mapCheck=extras.sitemap||{status:0,ok:false,missing:true,count:0};
   add("Indexing",mapCheck.ok&&mapCheck.valid&&mapCheck.count>0?"passed":mapCheck.missing?"warning":"warning","XML sitemap",mapCheck.ok&&mapCheck.valid?"Sitemap returned HTTP "+mapCheck.status+" and contains "+mapCheck.count+" URL/location entries.":mapCheck.missing?"No sitemap was found at the advertised or default location.":mapCheck.ok?"The sitemap URL returned HTTP "+mapCheck.status+" but its XML root is not a sitemap.":"Sitemap check returned HTTP "+mapCheck.status+".","Publish a valid XML sitemap, include canonical indexable URLs, and submit its URL in Google Search Console.");
   const passed=findings.filter(f=>f.severity==="passed").length, warnings=findings.filter(f=>f.severity==="warning").length, critical=findings.filter(f=>f.severity==="critical").length;
@@ -78,6 +80,18 @@ async function inspectCrawlFiles(target){
   if(sitemap.ok){sitemap.valid=/<(?:[a-z0-9_-]+:)?(?:urlset|sitemapindex)\b/i.test(sitemap.text);const locs=sitemap.text.match(/<(?:[a-z0-9_-]+:)?(?:url|sitemap)\b[^>]*>/gi)||[];sitemap.count=sitemap.valid?locs.length:0;}
   return {robots,sitemap};
 }
+async function inspectInternalLinks(html,target){
+  const tags=html.match(/<a\\b[^>]*>/gi)||[],seen=new Set(),urls=[];
+  for(const tag of tags){
+    const href=attr(tag,"href");if(!href||href.startsWith("#")||/^(mailto:|tel:|javascript:|data:)/i.test(href))continue;
+    try{const u=new URL(href,target);if(u.origin!==target.origin||!/^https?:$/.test(u.protocol))continue;u.hash="";if(u.href===target.href||seen.has(u.href))continue;seen.add(u.href);urls.push(u);if(urls.length>=8)break;}catch{}
+  }
+  const checked=await Promise.all(urls.map(async url=>{
+    try{const r=await fetch(url.href,{method:"GET",redirect:"manual",signal:AbortSignal.timeout(3500),headers:{"user-agent":"SEOMachineBot/1.1","range":"bytes=0-0","accept":"text/html,*/*"}});if(r.body)await r.body.cancel();return {url:url.href,status:r.status,broken:r.status>=400};}
+    catch{return {url:url.href,status:0,broken:true};}
+  }));
+  return {checked:checked.length,broken:checked.filter(x=>x.broken).slice(0,8),tested:checked};
+}
 async function doAudit(request,env,user) {
   const body=await request.json().catch(()=>null);
   if(!body||typeof body.url!=="string"||body.url.length>2048) return reply({error:"Provide a website URL."},400);
@@ -97,8 +111,8 @@ async function doAudit(request,env,user) {
   if(!(response.headers.get("content-type")||"").includes("text/html")) return reply({error:"The URL did not return an HTML page."},422);
   const reader=response.body&&response.body.getReader(); let html="",size=0;
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
-  const crawlFiles=await inspectCrawlFiles(target);
-  const audit=analyze(html,target,response.status,response.headers,crawlFiles);
+  const [crawlFiles,internalLinks]=await Promise.all([inspectCrawlFiles(target),inspectInternalLinks(html,target)]);
+  const audit=analyze(html,target,response.status,response.headers,{...crawlFiles,internalLinks});
   audit.ownerId=user.id; audit.ownerEmail=user.email;
   audit.id=crypto.randomUUID();
   try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+audit.id,JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
