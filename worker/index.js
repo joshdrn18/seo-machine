@@ -215,6 +215,38 @@ export default {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       return reply({users:await auth.listUsers()},200,headers);
     }
+    if(path.startsWith("/api/admin/users/")&&path.endsWith("/detail")&&request.method==="GET") {
+      const actor=await getUser();
+      if(!actor) return reply({error:"Authentication required."},401,headers);
+      if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      const id=decodeURIComponent(path.slice("/api/admin/users/".length,-"/detail".length));
+      if(!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:"Invalid member ID."},400,headers);
+      const account=(await auth.listUsers()).find(x=>x.id===id);
+      if(!account || account.role!=="member") return reply({error:"Member not found."},404,headers);
+      const projectKeys=await env.AUDITS.list({prefix:"project:"+id+":",limit:100});
+      const memberProjects=[];
+      for(const item of projectKeys.keys||[]) {
+        try { const raw=await env.AUDITS.get(item.name); if(raw) memberProjects.push(JSON.parse(raw)); } catch(e) {}
+      }
+      memberProjects.sort((a,b)=>new Date(b.updatedAt||b.createdAt)-new Date(a.updatedAt||a.createdAt));
+      const memberAudits=[];
+      let cursor;
+      for(let page=0;page<10;page++) {
+        const listed=await env.AUDITS.list({prefix:"audit:",limit:1000,...(cursor?{cursor}:{})});
+        const keys=listed.keys||[];
+        for(let i=0;i<keys.length;i+=40) {
+          const batch=await Promise.all(keys.slice(i,i+40).map(async item=>{
+            try { const raw=await env.AUDITS.get(item.name); return raw?JSON.parse(raw):null; } catch(e) { return null; }
+          }));
+          for(const audit of batch) if(audit&&audit.ownerId===id) memberAudits.push(audit);
+        }
+        if(listed.list_complete||!listed.cursor) break;
+        cursor=listed.cursor;
+      }
+      memberAudits.sort((a,b)=>new Date(b.checkedAt)-new Date(a.checkedAt));
+      const events=(await auth.listActivity(200)).filter(x=>x.user_id===id || (x.action==="member.created"&&String(x.detail||"").includes(account.email)));
+      return reply({member:account,projects:memberProjects,audits:memberAudits.slice(0,100),activity:events.slice(0,50),summary:{websites:memberProjects.length,audits:memberAudits.length,averageScore:memberAudits.length?Math.round(memberAudits.reduce((sum,a)=>sum+(Number(a.score)||0),0)/memberAudits.length):null}},200,headers);
+    }
     if(path==="/api/admin/users"&&request.method==="POST") {
       const actor=await getUser(); if(!actor) return reply({error:"Authentication required."},401,headers); if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       const body=await readBody();
