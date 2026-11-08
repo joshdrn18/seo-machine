@@ -143,6 +143,13 @@ export class AuthDirectory extends DurableObject {
     this.addActivity(id,status==="active"?"account.reactivated":"account.suspended",status==="active"?"Member account reactivated by Super Admin":"Member account suspended by Super Admin");
     return true;
   }
+  resetMemberPassword(id,passwordHash,passwordSalt) {
+    const result=this.ctx.storage.sql.exec("UPDATE accounts SET password_hash=?,password_salt=?,updated_at=? WHERE id=? AND role='member'",passwordHash,passwordSalt,new Date().toISOString(),id);
+    if(result.rowsWritten!==1) return false;
+    this.ctx.storage.sql.exec("DELETE FROM sessions WHERE user_id=?",id);
+    this.addActivity(id,"account.password_reset","Password reset by Super Admin; all sessions revoked");
+    return true;
+  }
   listUsers() {
     return this.ctx.storage.sql.exec("SELECT id,email,name,role,status,created_at FROM accounts ORDER BY created_at DESC").toArray();
   }
@@ -221,6 +228,20 @@ export default {
     if(path==="/api/admin/users"&&request.method==="GET") {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       return reply({users:await auth.listUsers()},200,headers);
+    }
+    if(path.startsWith("/api/admin/users/")&&path.endsWith("/password")&&request.method==="PATCH") {
+      const actor=await getUser();
+      if(!actor) return reply({error:"Authentication required."},401,headers);
+      if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      const id=decodeURIComponent(path.slice("/api/admin/users/".length,-"/password".length));
+      if(!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:"Invalid member ID."},400,headers);
+      const body=await readBody();
+      if(!body||typeof body.password!=="string"||body.password.length<12||body.password.length>128) return reply({error:"New password must be 12–128 characters."},400,headers);
+      const salt=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
+      const hash=await passwordHash(body.password,salt);
+      if(!await auth.resetMemberPassword(id,hash,salt)) return reply({error:"Member not found."},404,headers);
+      await event(actor.id,"member.password_reset","Password reset for member · "+id);
+      return reply({ok:true,message:"Password updated. All member sessions have been signed out."},200,headers);
     }
     if(path.startsWith("/api/admin/users/")&&path.endsWith("/status")&&request.method==="PATCH") {
       const actor=await getUser();
