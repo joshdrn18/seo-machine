@@ -136,6 +136,13 @@ export class AuthDirectory extends DurableObject {
   addActivity(userId,action,detail) {
     this.ctx.storage.sql.exec("INSERT INTO activity (user_id,action,detail,created_at) VALUES (?,?,?,?)",userId || null,action,detail || "",new Date().toISOString());
   }
+  setUserStatus(id,status) {
+    if(!["active","suspended"].includes(status)) throw new Error("Invalid account status");
+    const result=this.ctx.storage.sql.exec("UPDATE accounts SET status=?,updated_at=? WHERE id=? AND role='member'",status,new Date().toISOString(),id);
+    if(result.rowsWritten!==1) return false;
+    this.addActivity(id,status==="active"?"account.reactivated":"account.suspended",status==="active"?"Member account reactivated by Super Admin":"Member account suspended by Super Admin");
+    return true;
+  }
   listUsers() {
     return this.ctx.storage.sql.exec("SELECT id,email,name,role,status,created_at FROM accounts ORDER BY created_at DESC").toArray();
   }
@@ -214,6 +221,18 @@ export default {
     if(path==="/api/admin/users"&&request.method==="GET") {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       return reply({users:await auth.listUsers()},200,headers);
+    }
+    if(path.startsWith("/api/admin/users/")&&path.endsWith("/status")&&request.method==="PATCH") {
+      const actor=await getUser();
+      if(!actor) return reply({error:"Authentication required."},401,headers);
+      if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      const id=decodeURIComponent(path.slice("/api/admin/users/".length,-"/status".length));
+      if(!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:"Invalid member ID."},400,headers);
+      const body=await readBody();
+      if(!body||!["active","suspended"].includes(body.status)) return reply({error:"Status must be active or suspended."},400,headers);
+      if(!await auth.setUserStatus(id,body.status)) return reply({error:"Member not found."},404,headers);
+      await event(actor.id,"member.status_changed",body.status+" · "+id);
+      return reply({ok:true,status:body.status},200,headers);
     }
     if(path.startsWith("/api/admin/users/")&&path.endsWith("/detail")&&request.method==="GET") {
       const actor=await getUser();
