@@ -334,6 +334,49 @@ export default {
       const members=[...memberMap.values()].sort((a,b)=>b.audits-a.audits||b.websites-a.websites).slice(0,10).map(x=>({...x,averageScore:x.scoreCount?Math.round(x.scoreTotal/x.scoreCount):null}));
       return reply({periodDays:days,totalMembers:users.length,activeMembers:users.filter(x=>x.status==="active").length,newMembers:daily.reduce((s,x)=>s+x.signups,0),websites:[...memberMap.values()].reduce((s,x)=>s+x.websites,0),audits:totalAudits,daily,topMembers:members,scannedAuditRecords:scanned},200,headers);
     }
+    if(path==="/api/admin/intelligence"&&request.method==="GET") {
+      const actor=await getUser();
+      if(!actor) return reply({error:"Authentication required."},401,headers);
+      if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
+      const days=30,dayMs=86400000,now=new Date(),today=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()),start=today-(days-1)*dayMs;
+      const daily=Array.from({length:days},(_,i)=>({date:new Date(start+i*dayMs).toISOString().slice(0,10),audits:0,scoreTotal:0,scoreCount:0}));
+      const dayMap=new Map(daily.map(x=>[x.date,x]));
+      const issueMap=new Map(),sites=new Set();
+      let cursor,scanned=0,totalAudits=0,critical=0,warnings=0,scoreTotal=0,scoreCount=0;
+      for(let page=0;page<10;page++) {
+        const listed=await env.AUDITS.list({prefix:"audit:",limit:1000,...(cursor?{cursor}:{})});
+        const keys=listed.keys||[];
+        for(let i=0;i<keys.length;i+=40) {
+          const batch=await Promise.all(keys.slice(i,i+40).map(async item=>{try{const raw=await env.AUDITS.get(item.name);return raw?JSON.parse(raw):null}catch(e){return null}}));
+          for(const audit of batch) {
+            if(!audit)continue;scanned++;
+            const when=Date.parse(audit.checkedAt||"");
+            if(!Number.isFinite(when)||when<start)continue;
+            totalAudits++;if(audit.hostname)sites.add(audit.hostname);
+            const bucket=dayMap.get(new Date(when).toISOString().slice(0,10));
+            if(bucket){bucket.audits++;const score=Number(audit.score);if(Number.isFinite(score)){bucket.scoreTotal+=score;bucket.scoreCount++;}}
+            const score=Number(audit.score);if(Number.isFinite(score)){scoreTotal+=score;scoreCount++;}
+            for(const finding of Array.isArray(audit.findings)?audit.findings:[]) {
+              const severity=["critical","warning","passed"].includes(finding?.severity)?finding.severity:"warning";
+              if(severity==="critical")critical++;else if(severity==="warning")warnings++;
+              if(severity==="passed")continue;
+              const title=String(finding?.title||"Unspecified finding").slice(0,120);
+              const category=String(finding?.category||"General").slice(0,60);
+              const key=category+"::"+title;
+              let item=issueMap.get(key);
+              if(!item){item={title,category,severity,occurrences:0,sites:new Set(),recommendation:String(finding?.recommendation||"Review this finding and apply the recommended fix.").slice(0,500)};issueMap.set(key,item);}
+              item.occurrences++;if(audit.hostname)item.sites.add(audit.hostname);
+              if(severity==="critical")item.severity="critical";
+            }
+          }
+        }
+        if(listed.list_complete||!listed.cursor)break;
+        cursor=listed.cursor;
+      }
+      const topIssues=[...issueMap.values()].map(x=>({...x,affectedSites:x.sites.size,sites:undefined})).sort((a,b)=>(b.severity==="critical"?3:1)*b.occurrences-(a.severity==="critical"?3:1)*a.occurrences||b.occurrences-a.occurrences).slice(0,12);
+      const scoreTrend=daily.map(x=>({date:x.date,audits:x.audits,averageScore:x.scoreCount?Math.round(x.scoreTotal/x.scoreCount):null}));
+      return reply({periodDays:days,audits:totalAudits,sites:sites.size,critical,warnings,averageScore:scoreCount?Math.round(scoreTotal/scoreCount):null,daily:scoreTrend,topIssues,scannedAuditRecords:scanned},200,headers);
+    }
     if(path==="/api/admin/activity"&&request.method==="GET") {
       const user=await getUser(); if(!user) return reply({error:"Authentication required."},401,headers); if(user.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       return reply({events:await auth.listActivity(150)},200,headers);
