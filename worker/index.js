@@ -302,7 +302,7 @@ export default {
       if(!actor) return reply({error:"Authentication required."},401,headers);
       if(actor.role!=="super_admin") return reply({error:"Forbidden."},403,headers);
       const users=(await auth.listUsers()).filter(x=>x.role==="member");
-      const now=Date.now(),days=30,dayMs=86400000,start=now-days*dayMs;
+      const now=new Date(),days=30,dayMs=86400000,today=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()),start=today-(days-1)*dayMs;
       const daily=Array.from({length:days},(_,i)=>{const d=new Date(start+(i*dayMs));return {date:d.toISOString().slice(0,10),signups:0,audits:0};});
       const dayMap=new Map(daily.map(x=>[x.date,x]));
       const memberMap=new Map(users.map(x=>[x.id,{id:x.id,name:x.name,email:x.email,status:x.status,websites:0,audits:0,scoreTotal:0,scoreCount:0}]));
