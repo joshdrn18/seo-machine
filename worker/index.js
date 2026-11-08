@@ -52,7 +52,7 @@ function analyze(html,url,status,headers,extras={}) {
   const robotsCheck=extras.robots||{status:0,ok:false,missing:true};
   add("Crawlability",robotsCheck.ok?"passed":robotsCheck.missing?"passed":"warning","robots.txt",robotsCheck.ok?"robots.txt returned HTTP "+robotsCheck.status+".":robotsCheck.missing?"No robots.txt file was found; crawlers can still crawl by default.":"robots.txt check returned HTTP "+robotsCheck.status+".","Keep robots.txt reachable and ensure it does not block important pages or assets.");
   const mapCheck=extras.sitemap||{status:0,ok:false,missing:true,count:0};
-  add("Indexing",mapCheck.ok&&mapCheck.count>0?"passed":mapCheck.missing?"warning":mapCheck.ok?"warning":"warning","XML sitemap",mapCheck.ok?"Sitemap returned HTTP "+mapCheck.status+" and contains "+mapCheck.count+" URL/location entries.":mapCheck.missing?"No sitemap was found at the advertised or default location.":"Sitemap check returned HTTP "+mapCheck.status+".","Publish a valid XML sitemap, include canonical indexable URLs, and submit its URL in Google Search Console.");
+  add("Indexing",mapCheck.ok&&mapCheck.valid&&mapCheck.count>0?"passed":mapCheck.missing?"warning":"warning","XML sitemap",mapCheck.ok&&mapCheck.valid?"Sitemap returned HTTP "+mapCheck.status+" and contains "+mapCheck.count+" URL/location entries.":mapCheck.missing?"No sitemap was found at the advertised or default location.":mapCheck.ok?"The sitemap URL returned HTTP "+mapCheck.status+" but its XML root is not a sitemap.":"Sitemap check returned HTTP "+mapCheck.status+".,"Publish a valid XML sitemap, include canonical indexable URLs, and submit its URL in Google Search Console.");
   const passed=findings.filter(f=>f.severity==="passed").length, warnings=findings.filter(f=>f.severity==="warning").length, critical=findings.filter(f=>f.severity==="critical").length;
   const score=Math.max(0,Math.round(findings.reduce((n,f)=>n+(f.severity==="passed"?10:f.severity==="warning"?5:0),0)/findings.length*10));
   return {url:url.href,hostname:url.hostname,status:status,title:title,description:description,score:score,findings:findings,summary:{passed:passed,warnings:warnings,critical:critical,total:findings.length},checkedAt:new Date().toISOString(),technical:{canonical:canonicalHref||null,robots:robotsCombined||null,jsonLdValid,jsonLdInvalid,sitemapUrls:mapCheck.count||0}};
@@ -72,7 +72,7 @@ async function inspectCrawlFiles(target){
   const robotsUrl=new URL("/robots.txt",origin);
   const robots=await fetchAuditText(robotsUrl,262144,5000);
   let sitemapUrl=null;
-  if(robots.ok){const declared=robots.text.match(/^\s*Sitemap:\s*(\S+)/im);if(declared){try{const parsed=new URL(declared[1],origin);if(parsed.origin===origin.origin&&parsed.protocol==="https:")sitemapUrl=parsed;}catch{}}}
+  if(robots.ok){const declared=robots.text.match(/^\s*Sitemap:\s*(\S+)/im);if(declared){try{const parsed=new URL(declared[1],origin);if(parsed.origin===origin.origin)sitemapUrl=parsed;}catch{}}}
   if(!sitemapUrl)sitemapUrl=new URL("/sitemap.xml",origin);
   const sitemap=await fetchAuditText(sitemapUrl,524288,6000);
   if(sitemap.ok){const locs=sitemap.text.match(/<(?:url|sitemap)\b[^>]*>/gi)||[];sitemap.count=locs.length;}
