@@ -322,7 +322,7 @@ export default {
       console.error("[SEO Machine API]", new URL(request.url).pathname, error);
       return reply({error:"Internal server error",diagnostic:String(error?.message || error)},500,headers);
     }
-  }
+  },
   async scheduled(event,env,ctx) {
     ctx.waitUntil((async()=>{
       let cursor;
