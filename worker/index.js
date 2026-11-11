@@ -47,7 +47,7 @@ function analyze(html,url,status,headers,extras={},targetKeyword="") {
   const introText=(paragraphs[0]||visibleText).slice(0,700);
   const keyword=String(targetKeyword||"").trim().replace(/\s+/g," ").slice(0,100);
   const contains=(text)=>!!keyword&&String(text||"").toLocaleLowerCase().includes(keyword.toLocaleLowerCase());
-  const keywordMatches=keyword?(visibleText.match(new RegExp(escapedKeyword,"gi"))||[]).length:0;
+  let keywordMatches=0; if(keyword){const lowerText=visibleText.toLocaleLowerCase(),lowerKeyword=keyword.toLocaleLowerCase();let at=0;while((at=lowerText.indexOf(lowerKeyword,at))!==-1){keywordMatches++;at+=lowerKeyword.length;}}
   const keywordDensity=wordCount?keywordMatches/wordCount*100:0;
   const keywordPlacement=keyword?{title:contains(title),h1:contains(headingTags.filter(t=>/^<h1/i.test(t)).map(t=>extract(t,/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)).join(" ")),introduction:contains(introText),description:contains(description),headings:contains(headingTexts.join(" "))}:{};
   const findings=[];
