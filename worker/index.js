@@ -160,20 +160,20 @@ async function fetchCompetitorPage(value,keyword){
   if(!(response.headers.get("content-type")||"").toLowerCase().includes("text/html"))throw new Error(target.hostname+" did not return HTML.");
   const reader=response.body?.getReader();let html="",size=0;
   if(reader){const decoder=new TextDecoder();while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>524288){await reader.cancel();throw new Error(target.hostname+" page exceeds 512 KB.");}html+=decoder.decode(part.value,{stream:true});}html+=decoder.decode();}
-  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
-  const desc=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i)||extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
-  const hs=html.match(/<h[1-6]\\b[^>]*>[\\s\\S]*?<\\/h[1-6]\\s*>/gi)||[];
-  const h1=hs.filter(x=>/^<h1\\b/i.test(x)).map(x=>extract(x,/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i));
-  const clean=html.replace(/<(script|style|noscript|svg|template|nav|footer)\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>/gi," ");
-  const text=clean.replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&amp;/gi,"&").replace(/&[a-z]+;/gi," ").replace(/\\s+/g," ").trim();
-  const words=text.match(/[\\p{L}\\p{N}]+/gu)||[];
+  const title=extract(html,/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const desc=extract(html,/<meta\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i)||extract(html,/<meta\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const hs=html.match(/<h[1-6]\b[^>]*>[\s\S]*?<\/h[1-6]\s*>/gi)||[];
+  const h1=hs.filter(x=>/^<h1\b/i.test(x)).map(x=>extract(x,/<h1\b[^>]*>([\s\S]*?)<\/h1>/i));
+  const clean=html.replace(/<(script|style|noscript|svg|template|nav|footer)\b[^>]*>[\s\S]*?<\/\1\s*>/gi," ");
+  const text=clean.replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&amp;/gi,"&").replace(/&[a-z]+;/gi," ").replace(/\s+/g," ").trim();
+  const words=text.match(/[\p{L}\p{N}]+/gu)||[];
   const lower=text.toLowerCase(),key=keyword.toLowerCase();let matches=0,at=0;if(key)while((at=lower.indexOf(key,at))!==-1){matches++;at+=key.length;}
   return {url:target.href,hostname:target.hostname,status:response.status,title,description:desc,h1:h1.slice(0,3),wordCount:words.length,headingCount:hs.length,keywordMatches:matches,keywordPresent:!!key&&lower.includes(key),keywordInTitle:!!key&&title.toLowerCase().includes(key),keywordInH1:!!key&&h1.join(" ").toLowerCase().includes(key)};
 }
 async function competitorAnalysis(request,user){
   const body=await request.json().catch(()=>null);
   if(!body||typeof body.url!=="string"||!Array.isArray(body.competitors))return reply({error:"Provide a primary URL and competitor URL list."},400);
-  const keyword=typeof body.keyword==="string"?body.keyword.trim().replace(/\\s+/g," ").slice(0,100):"";
+  const keyword=typeof body.keyword==="string"?body.keyword.trim().replace(/\s+/g," ").slice(0,100):"";
   if(body.competitors.length<1||body.competitors.length>3)return reply({error:"Add between 1 and 3 competitor URLs."},400);
   let primary;try{primary=parseUrl(body.url);}catch(e){return reply({error:e.message},400);}
   const unique=[...new Set(body.competitors.map(x=>String(x||"").trim()).filter(Boolean))];
