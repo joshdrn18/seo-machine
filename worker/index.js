@@ -146,6 +146,54 @@ async function doAudit(request,env,user) {
   return reply({audit:audit});
 }
 
+
+async function fetchCompetitorPage(value,keyword){
+  let target;try{target=parseUrl(value);}catch(e){throw new Error("Invalid competitor URL: "+e.message);}
+  let response;
+  try{response=await fetch(target.href,{redirect:"manual",signal:AbortSignal.timeout(9000),headers:{"user-agent":"SEOMachineBot/1.2","accept":"text/html,application/xhtml+xml"}});}catch{throw new Error("Could not fetch "+target.hostname+" (timeout or network error).");}
+  if([301,302,303,307,308].includes(response.status)){
+    const loc=response.headers.get("location");if(!loc)throw new Error(target.hostname+" returned a redirect without a destination.");
+    const next=parseUrl(new URL(loc,target).href);if(next.hostname!==target.hostname)throw new Error("Cross-domain redirect blocked for "+target.hostname+".");target=next;
+    response=await fetch(target.href,{redirect:"manual",signal:AbortSignal.timeout(9000),headers:{"user-agent":"SEOMachineBot/1.2","accept":"text/html,application/xhtml+xml"}});
+  }
+  if(!response.ok)throw new Error(target.hostname+" returned HTTP "+response.status+".");
+  if(!(response.headers.get("content-type")||"").toLowerCase().includes("text/html"))throw new Error(target.hostname+" did not return HTML.");
+  const reader=response.body?.getReader();let html="",size=0;
+  if(reader){const decoder=new TextDecoder();while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>524288){await reader.cancel();throw new Error(target.hostname+" page exceeds 512 KB.");}html+=decoder.decode(part.value,{stream:true});}html+=decoder.decode();}
+  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
+  const desc=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i)||extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const hs=html.match(/<h[1-6]\\b[^>]*>[\\s\\S]*?<\\/h[1-6]\\s*>/gi)||[];
+  const h1=hs.filter(x=>/^<h1\\b/i.test(x)).map(x=>extract(x,/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i));
+  const clean=html.replace(/<(script|style|noscript|svg|template|nav|footer)\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>/gi," ");
+  const text=clean.replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&amp;/gi,"&").replace(/&[a-z]+;/gi," ").replace(/\\s+/g," ").trim();
+  const words=text.match(/[\\p{L}\\p{N}]+/gu)||[];
+  const lower=text.toLowerCase(),key=keyword.toLowerCase();let matches=0,at=0;if(key)while((at=lower.indexOf(key,at))!==-1){matches++;at+=key.length;}
+  return {url:target.href,hostname:target.hostname,status:response.status,title,description:desc,h1:h1.slice(0,3),wordCount:words.length,headingCount:hs.length,keywordMatches:matches,keywordPresent:!!key&&lower.includes(key),keywordInTitle:!!key&&title.toLowerCase().includes(key),keywordInH1:!!key&&h1.join(" ").toLowerCase().includes(key)};
+}
+async function competitorAnalysis(request,user){
+  const body=await request.json().catch(()=>null);
+  if(!body||typeof body.url!=="string"||!Array.isArray(body.competitors))return reply({error:"Provide a primary URL and competitor URL list."},400);
+  const keyword=typeof body.keyword==="string"?body.keyword.trim().replace(/\\s+/g," ").slice(0,100):"";
+  if(body.competitors.length<1||body.competitors.length>3)return reply({error:"Add between 1 and 3 competitor URLs."},400);
+  let primary;try{primary=parseUrl(body.url);}catch(e){return reply({error:e.message},400);}
+  const unique=[...new Set(body.competitors.map(x=>String(x||"").trim()).filter(Boolean))];
+  if(unique.length!==body.competitors.length)return reply({error:"Competitor URLs must be unique and non-empty."},400);
+  let own;try{own=await fetchCompetitorPage(primary.href,keyword);}catch(e){return reply({error:"Your website: "+e.message},502);}
+  const competitors=[];for(const value of unique){try{const item=await fetchCompetitorPage(value,keyword);if(item.hostname===own.hostname)throw new Error("Competitor must be a different website.");competitors.push(item);}catch(e){return reply({error:e.message},502);}}
+  const maxWords=Math.max(own.wordCount,...competitors.map(x=>x.wordCount));
+  const averageWords=Math.round(competitors.reduce((n,x)=>n+x.wordCount,0)/competitors.length);
+  const maxHeadings=Math.max(...competitors.map(x=>x.headingCount));
+  const gaps=[];
+  if(!own.title)gaps.push({priority:"high",area:"Title tag",recommendation:"Add a unique, descriptive title to the primary page."});
+  if(keyword&&!own.keywordInTitle&&competitors.some(x=>x.keywordInTitle))gaps.push({priority:"high",area:"Keyword in title",recommendation:"Competitor pages use the target phrase in their title; assess whether it belongs naturally in yours."});
+  if(keyword&&!own.keywordInH1&&competitors.some(x=>x.keywordInH1))gaps.push({priority:"high",area:"Keyword in H1",recommendation:"Consider including the target phrase naturally in your main H1."});
+  if(own.wordCount<averageWords*.75)gaps.push({priority:"medium",area:"Content depth",recommendation:"Your page has "+own.wordCount+" detected words versus a competitor average of "+averageWords+". Add useful detail only where it better answers search intent."});
+  if(own.headingCount<maxHeadings*.7)gaps.push({priority:"medium",area:"Heading coverage",recommendation:"Competitors use more section headings. Review whether important subtopics are missing."});
+  if(!own.description&&competitors.some(x=>x.description))gaps.push({priority:"medium",area:"Meta description",recommendation:"Write a unique meta description that clearly communicates the page value."});
+  const result={checkedAt:new Date().toISOString(),keyword:keyword||null,primary:own,competitors,comparison:{competitorAverageWords:averageWords,highestCompetitorWords:maxWords,wordGap:own.wordCount-averageWords,highestCompetitorHeadings:maxHeadings},gaps,method:"HTML metadata and visible-text comparison; not live ranking, backlink, traffic, or Google keyword-volume data."};
+  return reply({analysis:result});
+}
+
 export class AuthDirectory extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -538,6 +586,13 @@ export default {
       }
       const sites=[...grouped.values()].map(site=>{site.history.sort((a,b)=>new Date(a.checkedAt)-new Date(b.checkedAt));const first=site.history[0],latest=site.history[site.history.length-1],previous=site.history.length>1?site.history[site.history.length-2]:null;return {...site,audits:site.history.length,currentScore:latest.score,previousScore:previous?previous.score:null,change:previous?latest.score-previous.score:null,trend:!previous?"new":latest.score>previous.score?"improving":latest.score<previous.score?"declining":"stable",firstScore:first.score,lastAuditAt:latest.checkedAt,history:site.history.slice(-30).reverse()}}).sort((a,b)=>new Date(b.lastAuditAt)-new Date(a.lastAuditAt));
       return reply({sites,totalSites:sites.length,totalAudits:sites.reduce((sum,x)=>sum+x.audits,0),scannedRecords:scanned,retentionDays:30},200,headers);
+    }
+    if(path==="/api/competitor-analysis"&&request.method==="POST") {
+      const user=await getUser();if(!user)return reply({error:"Authentication required."},401,headers);
+      const result=await competitorAnalysis(request,user);
+      const h=new Headers(result.headers);Object.keys(headers).forEach(k=>h.set(k,headers[k]));
+      if(result.status===200)await event(user.id,"competitor.analysis","Compared competitor pages");
+      return new Response(result.body,{status:result.status,headers:h});
     }
     if(path==="/api/audits"&&request.method==="GET") {
       const user=await getUser();
