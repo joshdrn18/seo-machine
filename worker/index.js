@@ -18,30 +18,56 @@ function parseUrl(value) {
 }
 function extract(html, regex) { const m=regex.exec(html); return m ? m[1].replace(/<[^>]*>/g," ").replace(/&amp;/gi,"&").replace(/&nbsp;/gi," ").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/\s+/g," ").trim() : ""; }
 function attr(tag,name){const m=tag.match(new RegExp("\\b"+name+"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))","i"));return m?(m[1]??m[2]??m[3]??"").trim():"";}
-function analyze(html,url,status,headers,extras={}) {
-  const title=extract(html,/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const description=extract(html,/<meta\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
-  const canonicalTag=(html.match(/<link\b[^>]*>/gi)||[]).find(tag=>/(^|\s)canonical(\s|$)/i.test(attr(tag,"rel")));
+function analyze(html,url,status,headers,extras={},targetKeyword="") {
+  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
+  const description=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const canonicalTag=(html.match(/<link\\b[^>]*>/gi)||[]).find(tag=>/(^|\\s)canonical(\\s|$)/i.test(attr(tag,"rel")));
   const canonicalHref=canonicalTag?attr(canonicalTag,"href"):"";
   let canonicalValid=false,canonicalDetails="No canonical link element was detected.";
   if(canonicalHref){try{const canonicalUrl=new URL(canonicalHref,url);canonicalValid=canonicalUrl.protocol==="https:"||canonicalUrl.protocol==="http:";canonicalDetails="Canonical points to "+canonicalUrl.href+(canonicalUrl.origin!==url.origin?" (different origin).":"");}catch{canonicalDetails="Canonical href is not a valid URL: "+canonicalHref;}}
-  const h1=(html.match(/<h1\b/gi)||[]).length, headings=(html.match(/<h[1-6]\b/gi)||[]).length;
-  const imgs=html.match(/<img\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\balt\s*=/.test(x)).length;
-  const viewport=/<meta\b(?=[^>]*name=["']viewport["'])/i.test(html);
-  const robotsMeta=(html.match(/<meta\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
+  const headingTags=html.match(/<h[1-6]\\b[^>]*>[\\s\\S]*?<\\/h[1-6]\\s*>/gi)||[];
+  const headingLevels=headingTags.map(tag=>Number((tag.match(/^<h([1-6])/i)||[])[1]));
+  const headingTexts=headingTags.map(tag=>extract(tag,/<h[1-6]\\b[^>]*>([\\s\\S]*?)<\\/h[1-6]\\s*>/i)).filter(Boolean);
+  const h1=headingLevels.filter(n=>n===1).length,headings=headingLevels.length;
+  const hierarchyIssues=headingLevels.some((level,i)=>i>0&&level>headingLevels[i-1]+1);
+  const imgs=html.match(/<img\\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\\balt\\s*=/.test(x)).length;
+  const viewport=/<meta\\b(?=[^>]*name=["']viewport["'])/i.test(html);
+  const robotsMeta=(html.match(/<meta\\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
   const robots=robotsMeta?attr(robotsMeta,"content"):"";
   const xRobots=headers.get("x-robots-tag")||"";
   const robotsCombined=[robots,xRobots].filter(Boolean).join("; ");
-  const jsonLd=(html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi)||[]);
+  const jsonLd=(html.match(/<script\\b[^>]*type=["']application\\/ld\\+json["'][^>]*>[\\s\\S]*?<\\/script>/gi)||[]);
   let jsonLdValid=0,jsonLdInvalid=0;
-  for(const block of jsonLd){const raw=block.replace(/^<script\b[^>]*>/i,"").replace(/<\/script>\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
+  for(const block of jsonLd){const raw=block.replace(/^<script\\b[^>]*>/i,"").replace(/<\\/script>\\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
+  const cleanHtml=html.replace(/<(script|style|noscript|svg|template|nav|footer)\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>/gi," ");
+  const visibleText=cleanHtml.replace(/<!--[\\s\\S]*?-->/g," ").replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&#\\d+;/g," ").replace(/&[a-z]+;/gi," ").replace(/\\s+/g," ").trim();
+  const words=visibleText.match(/[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*/gu)||[];
+  const wordCount=words.length;
+  const paragraphs=(cleanHtml.match(/<p\\b[^>]*>[\\s\\S]*?<\\/p>/gi)||[]).map(p=>extract(p,/<p\\b[^>]*>([\\s\\S]*?)<\\/p>/i)).filter(Boolean);
+  const introText=(paragraphs[0]||visibleText).slice(0,700);
+  const keyword=String(targetKeyword||"").trim().replace(/\\s+/g," ").slice(0,100);
+  const contains=(text)=>!!keyword&&String(text||"").toLocaleLowerCase().includes(keyword.toLocaleLowerCase());
+  const keywordMatches=keyword?(visibleText.match(new RegExp(keyword.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&"),"gi"))||[]).length:0;
+  const keywordDensity=wordCount?keywordMatches/wordCount*100:0;
+  const keywordPlacement=keyword?{title:contains(title),h1:contains(headingTags.filter(t=>/^<h1/i.test(t)).map(t=>extract(t,/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i)).join(" ")),introduction:contains(introText),description:contains(description),headings:contains(headingTexts.join(" "))}:{};
   const findings=[];
   function add(category,severity,titleText,details,recommendation){findings.push({category:category,severity:severity,title:titleText,details:details,recommendation:recommendation});}
   add("Technical",status>=200&&status<400?"passed":"critical","HTTP response","The page returned HTTP "+status+".","Keep the page reachable and return a successful status code.");
   add("On-page",!title?"critical":title.length>=30&&title.length<=60?"passed":"warning","Title tag",title?"Found a "+title.length+"-character title: "+title.slice(0,100):"No title tag was detected.","Add a unique, descriptive title; aim for roughly 30–60 characters.");
   add("On-page",!description?"critical":description.length>=70&&description.length<=160?"passed":"warning","Meta description",description?"Found a "+description.length+"-character description.":"No meta description was detected.","Write a compelling page-specific description of roughly 70–160 characters.");
   add("On-page",h1===1?"passed":"warning","H1 heading","Found "+h1+" H1 heading(s).","Use one clear primary H1 that describes the page.");
-  add("On-page",headings>0?"passed":"warning","Heading structure","Detected "+headings+" heading elements.","Organize content with descriptive, logically nested headings.");
+  add("On-page",!hierarchyIssues?"passed":"warning","Heading hierarchy",headings?"Detected heading levels: "+headingLevels.join(" → ")+".":"No heading elements were detected.","Keep headings in a logical order (H1, then H2, then H3); avoid skipping heading levels.");
+  add("Content",wordCount>=600?"passed":wordCount>=300?"warning":"warning","Main content depth","Approximately "+wordCount+" visible words were detected in the page HTML.","Make sure the page fully answers its search intent. Add useful, original detail where the topic needs it; avoid padding content just to reach a word count.");
+  add("Content",paragraphs.length>=2?"passed":"warning","Readable content structure","Detected "+paragraphs.length+" paragraph blocks and "+headings+" headings.","Break long sections into focused paragraphs and descriptive subheadings so visitors can scan the page.");
+  if(keyword){
+    const placements=Object.entries(keywordPlacement).filter(([,v])=>v).map(([k])=>k);
+    const missingPlacements=Object.entries(keywordPlacement).filter(([,v])=>!v).map(([k])=>k);
+    const placementScore=placements.length;
+    add("Keyword",placementScore>=3?"passed":placementScore>=1?"warning":"critical","Target keyword placement","Keyword “"+keyword+"” appears "+keywordMatches+" time(s) ("+keywordDensity.toFixed(2)+"% approximate density). Present in: "+(placements.join(", ")||"none")+". Missing from: "+(missingPlacements.join(", ")||"none")+".","Use the target phrase naturally in the title, main H1 and opening paragraph where relevant. Avoid repeating it unnaturally.");
+    add("Keyword",keywordDensity>3?"warning":"passed","Keyword usage balance","Approximate exact-phrase density is "+keywordDensity.toFixed(2)+"%.","Keep keyword use natural. If the phrase feels repetitive, replace some instances with useful related language.");
+  } else {
+    add("Keyword","warning","Target keyword not supplied","The audit checked content structure, but cannot judge keyword placement or search-intent relevance without a target keyword.","Enter the primary search phrase for this page when running an audit to enable keyword placement checks.");
+  }
   add("Technical",!canonicalHref?"warning":canonicalValid?"passed":"critical","Canonical URL",canonicalDetails,"Set one valid, absolute canonical URL that points to the preferred indexable page.");
   add("Technical",viewport?"passed":"warning","Mobile viewport",viewport?"A viewport meta tag was found.":"No viewport meta tag was detected.","Add a responsive viewport meta tag for mobile browsers.");
   add("Images",missing===0?"passed":"warning","Image alternative text",missing+" of "+imgs.length+" images appear to be missing an alt attribute.","Add useful alt text to informative images and empty alt text to decorative images.");
@@ -57,7 +83,7 @@ function analyze(html,url,status,headers,extras={}) {
   add("Indexing",mapCheck.ok&&mapCheck.valid&&mapCheck.count>0?"passed":mapCheck.missing?"warning":"warning","XML sitemap",mapCheck.ok&&mapCheck.valid?"Sitemap returned HTTP "+mapCheck.status+" and contains "+mapCheck.count+" URL/location entries.":mapCheck.missing?"No sitemap was found at the advertised or default location.":mapCheck.ok?"The sitemap URL returned HTTP "+mapCheck.status+" but its XML root is not a sitemap.":"Sitemap check returned HTTP "+mapCheck.status+".","Publish a valid XML sitemap, include canonical indexable URLs, and submit its URL in Google Search Console.");
   const passed=findings.filter(f=>f.severity==="passed").length, warnings=findings.filter(f=>f.severity==="warning").length, critical=findings.filter(f=>f.severity==="critical").length;
   const score=Math.max(0,Math.round(findings.reduce((n,f)=>n+(f.severity==="passed"?10:f.severity==="warning"?5:0),0)/findings.length*10));
-  return {url:url.href,hostname:url.hostname,status:status,title:title,description:description,score:score,findings:findings,summary:{passed:passed,warnings:warnings,critical:critical,total:findings.length},checkedAt:new Date().toISOString(),technical:{canonical:canonicalHref||null,robots:robotsCombined||null,jsonLdValid,jsonLdInvalid,sitemapUrls:mapCheck.count||0}};
+  return {url:url.href,hostname:url.hostname,status:status,title:title,description:description,score:score,findings:findings,summary:{passed:passed,warnings:warnings,critical:critical,total:findings.length},checkedAt:new Date().toISOString(),content:{wordCount,paragraphs:paragraphs.length,headings:headingLevels,targetKeyword:keyword||null,keywordMatches,keywordDensity:Number(keywordDensity.toFixed(2)),keywordPlacement}};
 }
 async function fetchAuditText(url,maxBytes=262144,timeoutMs=5000){
   let response;
@@ -95,6 +121,7 @@ async function inspectInternalLinks(html,target){
 async function doAudit(request,env,user) {
   const body=await request.json().catch(()=>null);
   if(!body||typeof body.url!=="string"||body.url.length>2048) return reply({error:"Provide a website URL."},400);
+  const targetKeyword=typeof body.keyword==="string"?body.keyword.trim().slice(0,100):"";
   let target; try { target=parseUrl(body.url); } catch(e) { return reply({error:e.message},400); }
   let response;
   try {
@@ -112,7 +139,7 @@ async function doAudit(request,env,user) {
   const reader=response.body&&response.body.getReader(); let html="",size=0;
   if(reader) { const decoder=new TextDecoder(); while(true) { const part=await reader.read(); if(part.done) break; size+=part.value.byteLength; if(size>1048576) { await reader.cancel(); return reply({error:"Page exceeds the 1 MB audit limit."},413); } html+=decoder.decode(part.value,{stream:true}); } }
   const [crawlFiles,internalLinks]=await Promise.all([inspectCrawlFiles(target),inspectInternalLinks(html,target)]);
-  const audit=analyze(html,target,response.status,response.headers,{...crawlFiles,internalLinks});
+  const audit=analyze(html,target,response.status,response.headers,{...crawlFiles,internalLinks},targetKeyword);
   audit.ownerId=user.id; audit.ownerEmail=user.email;
   audit.id=crypto.randomUUID();
   try { await env.AUDITS.put("audit:"+audit.checkedAt+":"+audit.id,JSON.stringify(audit),{expirationTtl:2592000}); } catch(e) { return reply({error:"Audit completed but could not be saved. Please retry."},503); }
