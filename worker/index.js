@@ -19,37 +19,38 @@ function parseUrl(value) {
 function extract(html, regex) { const m=regex.exec(html); return m ? m[1].replace(/<[^>]*>/g," ").replace(/&amp;/gi,"&").replace(/&nbsp;/gi," ").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/\s+/g," ").trim() : ""; }
 function attr(tag,name){const m=tag.match(new RegExp("\\b"+name+"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))","i"));return m?(m[1]??m[2]??m[3]??"").trim():"";}
 function analyze(html,url,status,headers,extras={},targetKeyword="") {
-  const title=extract(html,/<title[^>]*>([\\s\\S]*?)<\\/title>/i);
-  const description=extract(html,/<meta\\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
-  const canonicalTag=(html.match(/<link\\b[^>]*>/gi)||[]).find(tag=>/(^|\\s)canonical(\\s|$)/i.test(attr(tag,"rel")));
+  const title=extract(html,/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const description=extract(html,/<meta\b(?=[^>]*name=["']description["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>/i) || extract(html,/<meta\b(?=[^>]*content=["']([^"']*)["'])(?=[^>]*name=["']description["'])[^>]*>/i);
+  const canonicalTag=(html.match(/<link\b[^>]*>/gi)||[]).find(tag=>/(^|\s)canonical(\s|$)/i.test(attr(tag,"rel")));
   const canonicalHref=canonicalTag?attr(canonicalTag,"href"):"";
   let canonicalValid=false,canonicalDetails="No canonical link element was detected.";
   if(canonicalHref){try{const canonicalUrl=new URL(canonicalHref,url);canonicalValid=canonicalUrl.protocol==="https:"||canonicalUrl.protocol==="http:";canonicalDetails="Canonical points to "+canonicalUrl.href+(canonicalUrl.origin!==url.origin?" (different origin).":"");}catch{canonicalDetails="Canonical href is not a valid URL: "+canonicalHref;}}
-  const headingTags=html.match(/<h[1-6]\\b[^>]*>[\\s\\S]*?<\\/h[1-6]\\s*>/gi)||[];
+  const headingTags=html.match(/<h[1-6]\b[^>]*>[\s\S]*?<\/h[1-6]\s*>/gi)||[];
   const headingLevels=headingTags.map(tag=>Number((tag.match(/^<h([1-6])/i)||[])[1]));
-  const headingTexts=headingTags.map(tag=>extract(tag,/<h[1-6]\\b[^>]*>([\\s\\S]*?)<\\/h[1-6]\\s*>/i)).filter(Boolean);
+  const headingTexts=headingTags.map(tag=>extract(tag,/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]\s*>/i)).filter(Boolean);
   const h1=headingLevels.filter(n=>n===1).length,headings=headingLevels.length;
   const hierarchyIssues=headingLevels.some((level,i)=>i>0&&level>headingLevels[i-1]+1);
-  const imgs=html.match(/<img\\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\\balt\\s*=/.test(x)).length;
-  const viewport=/<meta\\b(?=[^>]*name=["']viewport["'])/i.test(html);
-  const robotsMeta=(html.match(/<meta\\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
+  const imgs=html.match(/<img\b[^>]*>/gi)||[], missing=imgs.filter(x=>! /\balt\s*=/.test(x)).length;
+  const viewport=/<meta\b(?=[^>]*name=["']viewport["'])/i.test(html);
+  const robotsMeta=(html.match(/<meta\b[^>]*>/gi)||[]).find(tag=>/^(robots|googlebot)$/i.test(attr(tag,"name")));
   const robots=robotsMeta?attr(robotsMeta,"content"):"";
   const xRobots=headers.get("x-robots-tag")||"";
   const robotsCombined=[robots,xRobots].filter(Boolean).join("; ");
-  const jsonLd=(html.match(/<script\\b[^>]*type=["']application\\/ld\\+json["'][^>]*>[\\s\\S]*?<\\/script>/gi)||[]);
+  const jsonLd=(html.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi)||[]);
   let jsonLdValid=0,jsonLdInvalid=0;
-  for(const block of jsonLd){const raw=block.replace(/^<script\\b[^>]*>/i,"").replace(/<\\/script>\\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
-  const cleanHtml=html.replace(/<(script|style|noscript|svg|template|nav|footer)\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>/gi," ");
-  const visibleText=cleanHtml.replace(/<!--[\\s\\S]*?-->/g," ").replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&#\\d+;/g," ").replace(/&[a-z]+;/gi," ").replace(/\\s+/g," ").trim();
-  const words=visibleText.match(/[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*/gu)||[];
+  for(const block of jsonLd){const raw=block.replace(/^<script\b[^>]*>/i,"").replace(/<\/script>\s*$/i,"").trim();try{JSON.parse(raw);jsonLdValid++;}catch{jsonLdInvalid++;}}
+  const cleanHtml=html.replace(/<(script|style|noscript|svg|template|nav|footer)\b[^>]*>[\s\S]*?<\/\1\s*>/gi," ");
+  const visibleText=cleanHtml.replace(/<!--[\s\S]*?-->/g," ").replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&#\d+;/g," ").replace(/&[a-z]+;/gi," ").replace(/\s+/g," ").trim();
+  const words=visibleText.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)||[];
   const wordCount=words.length;
-  const paragraphs=(cleanHtml.match(/<p\\b[^>]*>[\\s\\S]*?<\\/p>/gi)||[]).map(p=>extract(p,/<p\\b[^>]*>([\\s\\S]*?)<\\/p>/i)).filter(Boolean);
+  const paragraphs=(cleanHtml.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi)||[]).map(p=>extract(p,/<p\b[^>]*>([\s\S]*?)<\/p>/i)).filter(Boolean);
   const introText=(paragraphs[0]||visibleText).slice(0,700);
-  const keyword=String(targetKeyword||"").trim().replace(/\\s+/g," ").slice(0,100);
+  const keyword=String(targetKeyword||"").trim().replace(/\s+/g," ").slice(0,100);
   const contains=(text)=>!!keyword&&String(text||"").toLocaleLowerCase().includes(keyword.toLocaleLowerCase());
-  const keywordMatches=keyword?(visibleText.match(new RegExp(keyword.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&"),"gi"))||[]).length:0;
+  const escapedKeyword=keyword.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\  const keywordMatches=keyword?(visibleText.match(new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi"))||[]).length:0;");
+  const keywordMatches=keyword?(visibleText.match(new RegExp(escapedKeyword,"gi"))||[]).length:0;
   const keywordDensity=wordCount?keywordMatches/wordCount*100:0;
-  const keywordPlacement=keyword?{title:contains(title),h1:contains(headingTags.filter(t=>/^<h1/i.test(t)).map(t=>extract(t,/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i)).join(" ")),introduction:contains(introText),description:contains(description),headings:contains(headingTexts.join(" "))}:{};
+  const keywordPlacement=keyword?{title:contains(title),h1:contains(headingTags.filter(t=>/^<h1/i.test(t)).map(t=>extract(t,/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)).join(" ")),introduction:contains(introText),description:contains(description),headings:contains(headingTexts.join(" "))}:{};
   const findings=[];
   function add(category,severity,titleText,details,recommendation){findings.push({category:category,severity:severity,title:titleText,details:details,recommendation:recommendation});}
   add("Technical",status>=200&&status<400?"passed":"critical","HTTP response","The page returned HTTP "+status+".","Keep the page reachable and return a successful status code.");
